@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     health_check_retries: int = 3
 
     api_port: int = 8000
+    op_vault: str = ""
 
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     hardening: HardeningSettings = Field(default_factory=HardeningSettings)
@@ -69,17 +70,6 @@ class Settings(BaseSettings):
     @property
     def op_sa_token_file(self) -> Path:
         return self.config_dir / ".op-sa-token"
-
-    @property
-    def secrets_template(self) -> Path | None:
-        """Profile-scoped template first, then repo-root fallback."""
-        profile = self.config_dir / ".env.secrets.tpl"
-        if profile.exists():
-            return profile
-        repo = Path(__file__).resolve().parent.parent.parent / ".env.secrets.tpl"
-        if repo.exists():
-            return repo
-        return None
 
     @property
     def sessions_dir(self) -> Path:

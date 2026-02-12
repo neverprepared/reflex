@@ -43,24 +43,11 @@ def _show_status() -> None:
     else:
         console.print("[yellow]1Password:[/yellow] not configured")
 
-    # Template status
-    template = settings.secrets_template
-    if template:
-        console.print(f"\n[dim]Template: {template}[/dim]")
-        from .secrets import parse_template
-
-        entries = parse_template(template)
-        if entries:
-            table = Table(show_header=True, box=None)
-            table.add_column("Secret", style="bold")
-            table.add_column("URI")
-            for name, uri in entries.items():
-                table.add_row(f"  {name}", uri)
-            console.print(table)
-        else:
-            console.print("[dim]  (template is empty)[/dim]")
-    else:
-        console.print("\n[dim]Template: none found[/dim]")
+    # Vault info
+    if has_op_integration():
+        vault = settings.op_vault
+        console.print(f"\n[dim]Vault: {vault or '(all accessible)'}[/dim]")
+        console.print("[dim]Items discovered automatically from vault — no template needed.[/dim]")
 
     # Plaintext files
     keys = _get_keys()
