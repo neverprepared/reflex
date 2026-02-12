@@ -7,6 +7,11 @@ on:
       - "reflex-claude-marketplace/plugins/**"
       - "reflex-claude-marketplace/docker/**"
       - "reflex-claude-marketplace/VERSION"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.0.1)"
+        required: true
 
 permissions:
   contents: write
@@ -14,6 +19,7 @@ permissions:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
@@ -26,9 +32,40 @@ jobs:
           config-file: reflex-claude-marketplace/release-please-config.json
           manifest-file: reflex-claude-marketplace/.release-please-manifest.json
 
+  manual-release:
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.VERSION }}
+      tag_name: ${{ steps.version.outputs.TAG }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set version
+        id: version
+        run: |
+          echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          echo "TAG=reflex/v${{ inputs.version }}" >> $GITHUB_OUTPUT
+
+      - name: Create plugin archive
+        run: |
+          VERSION="${{ inputs.version }}"
+          tar -czf "reflex-${VERSION}.tar.gz" \
+            reflex-claude-marketplace/plugins/ \
+            reflex-claude-marketplace/docker/ \
+            reflex-claude-marketplace/VERSION
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: reflex/v${{ inputs.version }}
+          name: "reflex v${{ inputs.version }}"
+          files: reflex-${{ inputs.version }}.tar.gz
+          generate_release_notes: true
+
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release_created }}
+    if: ${{ github.event_name == 'push' && needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,8 +85,10 @@ jobs:
           files: reflex-${{ needs.release-please.outputs.version }}.tar.gz
 
   update-formula:
-    needs: [release-please, publish]
-    if: ${{ needs.release-please.outputs.release_created }}
+    needs: [release-please, publish, manual-release]
+    if: |
+      always() &&
+      (needs.publish.result == 'success' || needs.manual-release.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,9 +96,18 @@ jobs:
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${{ needs.release-please.outputs.version }}" >> $GITHUB_OUTPUT
+          fi
+
       - name: Update formula
         run: |
-          VERSION="${{ needs.release-please.outputs.version }}"
+          VERSION="${{ steps.ver.outputs.VERSION }}"
           URL="https://github.com/neverprepared/reflex/releases/download/reflex/v${VERSION}/reflex-${VERSION}.tar.gz"
           SHA=$(curl -sL "$URL" | sha256sum | awk '{print $1}')
           FORMULA="reflex-claude-marketplace/Formula/reflex.rb"
@@ -72,12 +120,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add reflex-claude-marketplace/Formula/reflex.rb
-          git diff --cached --quiet || git commit -m "formula: update reflex to v${{ needs.release-please.outputs.version }}"
+          git diff --cached --quiet || git commit -m "formula: update reflex to v${{ steps.ver.outputs.VERSION }}"
           git push
 
       - name: Sync formula to homebrew tap
         run: |
-          VERSION="${{ needs.release-please.outputs.version }}"
+          VERSION="${{ steps.ver.outputs.VERSION }}"
           git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-reflex.git /tmp/tap
           mkdir -p /tmp/tap/Formula
           cp reflex-claude-marketplace/Formula/reflex.rb /tmp/tap/Formula/reflex.rb
