@@ -35,70 +35,81 @@ done
 SESSION_NAME="${SESSION_NAME:-default}"
 CONTAINER_NAME="developer-${SESSION_NAME}"
 
-# === Token setup (interactive — must happen before lifecycle) ===
+# === 1Password detection ===
 
-mkdir -p "$SECRETS_DIR"
-
-if [ ! -f "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    # Check if token is already in environment (e.g. from direnv)
-    if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-        echo "$CLAUDE_CODE_OAUTH_TOKEN" > "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
-        chmod 600 "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
-        echo "Saved Claude Code token from environment."
-    else
-        echo ""
-        echo "=== Claude Code setup ==="
-        echo ""
-        echo "No Claude Code token found. Let's set one up."
-        echo ""
-        echo "Run this command in another terminal:"
-        echo ""
-        echo "  claude setup-token"
-        echo ""
-        echo "It will generate a long-lived OAuth token (valid for 1 year)."
-        echo "Paste the token below."
-        echo ""
-        while true; do
-            read -p "Token: " claude_token
-            if [ -n "$claude_token" ]; then
-                echo "$claude_token" > "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
-                chmod 600 "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
-                echo "Saved."
-                break
-            fi
-            echo "Token is required. Please run 'claude setup-token' and paste the result."
-        done
-    fi
+if [ -f "$CONFIG_DIR/.op-sa-token" ] || [ -n "$OP_SERVICE_ACCOUNT_TOKEN" ]; then
+    echo "1Password Service Account detected — secrets resolved automatically."
+    OP_AVAILABLE=true
+else
+    OP_AVAILABLE=false
 fi
 
-if [ ! -f "$SECRETS_DIR/GH_TOKEN" ]; then
-    if [ -n "$GH_TOKEN" ]; then
-        echo "$GH_TOKEN" > "$SECRETS_DIR/GH_TOKEN"
-        chmod 600 "$SECRETS_DIR/GH_TOKEN"
-        echo "Saved GitHub token from environment."
-    else
-        echo ""
-        echo "=== GitHub CLI setup ==="
-        echo ""
-        echo "No GitHub token found. Let's set one up."
-        echo ""
-        echo "Run this in another terminal:"
-        echo ""
-        echo "  gh auth token"
-        echo ""
-        echo "Or create a Personal Access Token at:"
-        echo "  https://github.com/settings/tokens"
-        echo ""
-        echo "Paste the token below (or press Enter to skip)."
-        echo ""
-        read -p "Token: " gh_token
+# === Token setup (interactive — only when 1Password is NOT configured) ===
 
-        if [ -n "$gh_token" ]; then
-            echo "$gh_token" > "$SECRETS_DIR/GH_TOKEN"
-            chmod 600 "$SECRETS_DIR/GH_TOKEN"
-            echo "Saved."
+if [ "$OP_AVAILABLE" = false ]; then
+    mkdir -p "$SECRETS_DIR"
+
+    if [ ! -f "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN" ]; then
+        # Check if token is already in environment (e.g. from direnv)
+        if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "$CLAUDE_CODE_OAUTH_TOKEN" > "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
+            chmod 600 "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
+            echo "Saved Claude Code token from environment."
         else
-            echo "No token provided, skipping. You can set it up later by re-running this script."
+            echo ""
+            echo "=== Claude Code setup ==="
+            echo ""
+            echo "No Claude Code token found. Let's set one up."
+            echo ""
+            echo "Run this command in another terminal:"
+            echo ""
+            echo "  claude setup-token"
+            echo ""
+            echo "It will generate a long-lived OAuth token (valid for 1 year)."
+            echo "Paste the token below."
+            echo ""
+            while true; do
+                read -p "Token: " claude_token
+                if [ -n "$claude_token" ]; then
+                    echo "$claude_token" > "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
+                    chmod 600 "$SECRETS_DIR/CLAUDE_CODE_OAUTH_TOKEN"
+                    echo "Saved."
+                    break
+                fi
+                echo "Token is required. Please run 'claude setup-token' and paste the result."
+            done
+        fi
+    fi
+
+    if [ ! -f "$SECRETS_DIR/GH_TOKEN" ]; then
+        if [ -n "$GH_TOKEN" ]; then
+            echo "$GH_TOKEN" > "$SECRETS_DIR/GH_TOKEN"
+            chmod 600 "$SECRETS_DIR/GH_TOKEN"
+            echo "Saved GitHub token from environment."
+        else
+            echo ""
+            echo "=== GitHub CLI setup ==="
+            echo ""
+            echo "No GitHub token found. Let's set one up."
+            echo ""
+            echo "Run this in another terminal:"
+            echo ""
+            echo "  gh auth token"
+            echo ""
+            echo "Or create a Personal Access Token at:"
+            echo "  https://github.com/settings/tokens"
+            echo ""
+            echo "Paste the token below (or press Enter to skip)."
+            echo ""
+            read -p "Token: " gh_token
+
+            if [ -n "$gh_token" ]; then
+                echo "$gh_token" > "$SECRETS_DIR/GH_TOKEN"
+                chmod 600 "$SECRETS_DIR/GH_TOKEN"
+                echo "Saved."
+            else
+                echo "No token provided, skipping. You can set it up later by re-running this script."
+            fi
         fi
     fi
 fi

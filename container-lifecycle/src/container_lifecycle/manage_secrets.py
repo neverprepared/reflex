@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import subprocess
 
 import questionary
 from rich.console import Console
@@ -19,6 +21,116 @@ def _get_keys() -> list[str]:
     if not secrets_dir.is_dir():
         return []
     return sorted(f.name for f in secrets_dir.iterdir() if f.is_file())
+
+
+def _show_status() -> None:
+    """Show 1Password configuration state, template entries, and plaintext files."""
+    console.print()
+
+    # 1Password status
+    from .secrets import get_sa_token, has_op_integration
+
+    if has_op_integration():
+        token = get_sa_token()
+        masked = token[:8] + "..." if token and len(token) > 8 else "***"
+        console.print(f"[green]1Password:[/green] configured (token: {masked})")
+
+        # Show token source
+        if os.environ.get("OP_SERVICE_ACCOUNT_TOKEN"):
+            console.print("[dim]  Source: OP_SERVICE_ACCOUNT_TOKEN env var[/dim]")
+        else:
+            console.print(f"[dim]  Source: {settings.op_sa_token_file}[/dim]")
+    else:
+        console.print("[yellow]1Password:[/yellow] not configured")
+
+    # Template status
+    template = settings.secrets_template
+    if template:
+        console.print(f"\n[dim]Template: {template}[/dim]")
+        from .secrets import parse_template
+
+        entries = parse_template(template)
+        if entries:
+            table = Table(show_header=True, box=None)
+            table.add_column("Secret", style="bold")
+            table.add_column("URI")
+            for name, uri in entries.items():
+                table.add_row(f"  {name}", uri)
+            console.print(table)
+        else:
+            console.print("[dim]  (template is empty)[/dim]")
+    else:
+        console.print("\n[dim]Template: none found[/dim]")
+
+    # Plaintext files
+    keys = _get_keys()
+    if keys:
+        console.print(f"\n[dim]Plaintext files in {settings.secrets_dir}/:[/dim]")
+        for key in keys:
+            console.print(f"  {key}")
+    else:
+        console.print(f"\n[dim]No plaintext files in {settings.secrets_dir}/[/dim]")
+
+    console.print()
+
+
+def _setup_op() -> None:
+    """Set up 1Password Service Account integration."""
+    console.print()
+
+    if os.environ.get("OP_SERVICE_ACCOUNT_TOKEN"):
+        console.print(
+            "[yellow]OP_SERVICE_ACCOUNT_TOKEN is already set in your environment.[/yellow]"
+        )
+        console.print("[dim]The env var takes priority over the token file.[/dim]\n")
+        proceed = questionary.confirm("Write a token file anyway?", default=False).ask()
+        if not proceed:
+            return
+
+    console.print("[dim]Create a Service Account at:[/dim]")
+    console.print("[dim]  https://my.1password.com/developer-tools/infrastructure-secrets/serviceaccount/[/dim]")
+    console.print("[dim]Scope it to the vault your secrets live in (e.g. Workspace-Personal).[/dim]")
+    console.print()
+
+    token = questionary.password("Service Account token:").ask()
+    if not token or not token.strip():
+        console.print("\n[dim]Cancelled.[/dim]\n")
+        return
+
+    token = token.strip()
+
+    # Validate via op whoami
+    console.print("\n[dim]Validating token...[/dim]")
+    try:
+        env = {**os.environ, "OP_SERVICE_ACCOUNT_TOKEN": token}
+        result = subprocess.run(
+            ["op", "whoami"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=env,
+        )
+        if result.returncode != 0:
+            console.print(f"\n[red]Validation failed:[/red] {result.stderr.strip()}")
+            console.print("[dim]Check your token and try again.[/dim]\n")
+            return
+        console.print(f"[green]Valid![/green] {result.stdout.strip()}")
+    except FileNotFoundError:
+        console.print("\n[red]'op' CLI not found.[/red]")
+        console.print("[dim]Install: https://developer.1password.com/docs/cli/get-started/[/dim]\n")
+        return
+    except subprocess.TimeoutExpired:
+        console.print("\n[red]Validation timed out.[/red]\n")
+        return
+
+    # Write token file
+    token_file = settings.op_sa_token_file
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(token)
+    token_file.chmod(0o400)
+
+    console.print(f"\n[green]Saved to {token_file} (mode 0400)[/green]")
+    console.print("[dim]Secrets will now be resolved from 1Password automatically.[/dim]\n")
 
 
 def _manage_keys() -> None:
@@ -93,10 +205,14 @@ def main() -> None:
         while True:
             action = questionary.select(
                 "What would you like to do?",
-                choices=["Manage keys", "Add key", "Exit"],
+                choices=["Status", "1Password setup", "Manage keys", "Add key", "Exit"],
             ).ask()
 
-            if action == "Manage keys":
+            if action == "Status":
+                _show_status()
+            elif action == "1Password setup":
+                _setup_op()
+            elif action == "Manage keys":
                 _manage_keys()
             elif action == "Add key":
                 _add_key()

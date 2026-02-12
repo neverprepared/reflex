@@ -3,6 +3,9 @@ tmp/
 .env
 *.log
 
+# 1Password
+.op-sa-token
+
 # Python
 __pycache__/
 *.pyc

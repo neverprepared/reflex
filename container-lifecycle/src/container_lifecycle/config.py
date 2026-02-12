@@ -14,6 +14,9 @@ def _default_config_dir() -> Path:
     xdg = os.environ.get("XDG_CONFIG_HOME")
     if xdg:
         return Path(xdg) / "developer"
+    ws = os.environ.get("WORKSPACE_HOME")
+    if ws:
+        return Path(ws) / ".config" / "developer"
     return Path.home() / ".config" / "developer"
 
 
@@ -62,6 +65,21 @@ class Settings(BaseSettings):
     @property
     def secrets_dir(self) -> Path:
         return self.config_dir / ".secrets"
+
+    @property
+    def op_sa_token_file(self) -> Path:
+        return self.config_dir / ".op-sa-token"
+
+    @property
+    def secrets_template(self) -> Path | None:
+        """Profile-scoped template first, then repo-root fallback."""
+        profile = self.config_dir / ".env.secrets.tpl"
+        if profile.exists():
+            return profile
+        repo = Path(__file__).resolve().parent.parent.parent / ".env.secrets.tpl"
+        if repo.exists():
+            return repo
+        return None
 
     @property
     def sessions_dir(self) -> Path:

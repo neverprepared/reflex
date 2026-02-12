@@ -174,26 +174,13 @@ async def configure(ctx_or_name: SessionContext | str) -> SessionContext:
     ctx = _resolve(ctx_or_name)
     ctx.state = SessionState.CONFIGURING
 
-    # Load secrets from disk
-    secrets_dir = settings.secrets_dir
-    if ctx.hardened:
-        try:
-            for f in secrets_dir.iterdir():
-                if f.is_file():
-                    ctx.secrets[f.name] = f.read_text().strip()
-        except FileNotFoundError:
-            pass
-    else:
-        env_lines: list[str] = []
-        try:
-            for f in secrets_dir.iterdir():
-                if f.is_file():
-                    val = f.read_text().strip()
-                    env_lines.append(f"export {f.name}={val}")
-                    ctx.secrets[f.name] = val
-        except FileNotFoundError:
-            pass
-        ctx.env_content = "\n".join(env_lines)
+    # Resolve secrets (1Password when configured, plaintext files otherwise)
+    from .secrets import resolve_secrets, has_op_integration
+
+    resolved = resolve_secrets()
+    ctx.secrets.update(resolved)
+    if not ctx.hardened:
+        ctx.env_content = "\n".join(f"export {k}={v}" for k, v in resolved.items())
 
     # Agent token
     if ctx.token:
@@ -209,7 +196,11 @@ async def configure(ctx_or_name: SessionContext | str) -> SessionContext:
     slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
     slog.info(
         "container.configured",
-        metadata={"secretCount": len(ctx.secrets), "hardened": ctx.hardened},
+        metadata={
+            "secretCount": len(ctx.secrets),
+            "hardened": ctx.hardened,
+            "source": "1password" if has_op_integration() else "files",
+        },
     )
     return ctx
 
