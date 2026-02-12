@@ -109,10 +109,16 @@ jobs:
           VERSION="${{ steps.version.outputs.VERSION }}"
           FORMULA="shell-profiler/Formula/shell-profiler.rb"
 
-          DARWIN_ARM64=$(find checksums/checksum-darwin-arm64 -name '*.sha256' -exec awk '{print $1}' {} \;)
-          DARWIN_AMD64=$(find checksums/checksum-darwin-amd64 -name '*.sha256' -exec awk '{print $1}' {} \;)
-          LINUX_ARM64=$(find checksums/checksum-linux-arm64 -name '*.sha256' -exec awk '{print $1}' {} \;)
-          LINUX_AMD64=$(find checksums/checksum-linux-amd64 -name '*.sha256' -exec awk '{print $1}' {} \;)
+          echo "=== Debug: checksum tree ==="
+          find checksums/ -type f
+          echo "==="
+
+          DARWIN_ARM64=$(find checksums/checksum-darwin-arm64 -name '*darwin-arm64*.sha256' -exec awk '{print $1}' {} \;)
+          DARWIN_AMD64=$(find checksums/checksum-darwin-amd64 -name '*darwin-amd64*.sha256' -exec awk '{print $1}' {} \;)
+          LINUX_ARM64=$(find checksums/checksum-linux-arm64 -name '*linux-arm64*.sha256' -exec awk '{print $1}' {} \;)
+          LINUX_AMD64=$(find checksums/checksum-linux-amd64 -name '*linux-amd64*.sha256' -exec awk '{print $1}' {} \;)
+
+          echo "SHA256: darwin-arm64=$DARWIN_ARM64 darwin-amd64=$DARWIN_AMD64 linux-arm64=$LINUX_ARM64 linux-amd64=$LINUX_AMD64"
 
           sed -i "s/version \".*\"/version \"${VERSION}\"/" "$FORMULA"
           sed -i "s/sha256 \".*\" # darwin-arm64/sha256 \"${DARWIN_ARM64}\" # darwin-arm64/" "$FORMULA"
