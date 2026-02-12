@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - "shell-profiler/v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.2.1)"
+        required: true
 
 permissions:
   contents: write
@@ -37,9 +42,16 @@ jobs:
           go-version: "1.21"
           cache-dependency-path: shell-profiler/go.sum
 
-      - name: Get version from tag
+      - name: Resolve version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/shell-profiler/}" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=v${{ inputs.version }}" >> $GITHUB_OUTPUT
+            echo "BARE=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/shell-profiler/}" >> $GITHUB_OUTPUT
+            echo "BARE=${GITHUB_REF#refs/tags/shell-profiler/v}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Build binary
         env:
@@ -55,6 +67,8 @@ jobs:
       - name: Upload release artifacts
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: shell-profiler/v${{ steps.version.outputs.BARE }}
+          name: "shell-profiler v${{ steps.version.outputs.BARE }}"
           files: |
             shell-profiler/shell-profiler-${{ steps.version.outputs.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
             shell-profiler/shell-profiler-${{ steps.version.outputs.VERSION }}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz.sha256
@@ -80,9 +94,14 @@ jobs:
           path: checksums
           pattern: checksum-*
 
-      - name: Get version from tag
+      - name: Resolve version
         id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/shell-profiler/v}" >> $GITHUB_OUTPUT
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF#refs/tags/shell-profiler/v}" >> $GITHUB_OUTPUT
+          fi
 
       - name: Update formula in monorepo
         run: |
@@ -111,6 +130,7 @@ jobs:
       - name: Sync formula to homebrew tap
         run: |
           git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-shell-profiler.git /tmp/tap
+          mkdir -p /tmp/tap/Formula
           cp shell-profiler/Formula/shell-profiler.rb /tmp/tap/Formula/shell-profiler.rb
           cd /tmp/tap
           git config user.name "github-actions[bot]"
