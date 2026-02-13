@@ -206,14 +206,6 @@ async def provision(
     session_data_dir.mkdir(parents=True, exist_ok=True)
     volumes = {str(session_data_dir): {"bind": "/home/developer/.claude/projects", "mode": "rw"}}
 
-    # Mount host Claude settings.json (read-only) so containers inherit permissions/prefs
-    claude_config_dir = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(
-        os.path.expanduser("~"), ".claude"
-    )
-    host_settings = os.path.join(claude_config_dir, "settings.json")
-    if os.path.isfile(host_settings):
-        volumes[host_settings] = {"bind": "/home/developer/.claude/settings.json", "mode": "ro"}
-
     # User-specified volume mounts
     for vol in ctx.volume_mounts:
         parts = vol.split(":")

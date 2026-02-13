@@ -2,9 +2,6 @@
   "env": {
     "DISABLE_AUTOUPDATER": "1"
   },
-  "permissions": {
-    "defaultMode": "bypassPermissions"
-  },
   "promptSuggestionEnabled": false,
   "sandbox": {
     "allowUnsandboxedCommands": false

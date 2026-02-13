@@ -257,7 +257,8 @@ async def sse_events():
 
 @app.get("/api/sessions")
 async def api_list_sessions():
-    return _get_sessions_info()
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _get_sessions_info)
 
 
 @app.post("/api/stop")
@@ -354,9 +355,8 @@ async def api_create_session(request: Request):
 # ---------------------------------------------------------------------------
 
 
-@app.get("/api/metrics/containers")
-async def api_container_metrics():
-    """Per-container CPU %, memory usage, and uptime."""
+def _get_container_metrics() -> list[dict[str, Any]]:
+    """Collect per-container CPU %, memory usage, and uptime (blocking)."""
     results = []
     try:
         client = docker.from_env()
@@ -399,6 +399,13 @@ async def api_container_metrics():
 
     results.sort(key=lambda r: r["name"])
     return results
+
+
+@app.get("/api/metrics/containers")
+async def api_container_metrics():
+    """Per-container CPU %, memory usage, and uptime."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _get_container_metrics)
 
 
 # ---------------------------------------------------------------------------
