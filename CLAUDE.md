@@ -4,16 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a monorepo for an agentic development platform with four packages:
+This is a monorepo for an agentic development platform with five packages:
 
-- **brainbox/** — Sandboxed Docker environment for running Claude Code with a polyglot toolchain (Python, Node.js, Go, Rust) and web terminal access via ttyd
+- **brainbox/** — FastAPI backend, Svelte dashboard, and Python package for managing sandboxed Claude Code sessions
+- **docker/** — Dockerfiles and compose configs: `docker/brainbox/` (container image + setup), `docker/qdrant/`, `docker/langfuse/`
 - **reflex-claude-marketplace/** — Claude Code plugin providing skills, agents, slash commands, workflow orchestration, RAG integration, and MCP server management
 - **shell-profiler/** — Go CLI for managing workspace-specific environment profiles via direnv
 - **docs/** — Three-phase architectural documentation (Foundation → Hardened → Production-ready) describing the broader agentic platform vision
 
 ## Architecture
 
-**brainbox** provides the runtime environment. **reflex** is the plugin that runs inside it (or any Claude Code instance). **shell-profiler** manages per-workspace environment configuration. **docs** describes the aspirational architecture — reflex partially implements Phase 1 concepts (orchestration via Task tool, observability via LangFuse, vector DB via Qdrant), while container isolation, SPIRE identity, and security hardening from Phases 2–3 are not yet implemented.
+**brainbox** provides the API and dashboard, **docker/** provides the container images and compose configs. **reflex** is the plugin that runs inside brainbox (or any Claude Code instance). **shell-profiler** manages per-workspace environment configuration. **docs** describes the aspirational architecture — reflex partially implements Phase 1 concepts (orchestration via Task tool, observability via LangFuse, vector DB via Qdrant), while container isolation, SPIRE identity, and security hardening from Phases 2–3 are not yet implemented.
 
 ### Reflex Plugin Architecture
 
@@ -35,7 +36,7 @@ Scripts in `reflex-claude-marketplace/plugins/reflex/scripts/` implement hooks a
 
 ### Brainbox Architecture
 
-Docker container (Ubuntu 24.04) with non-root `developer` user, pre-installed Claude Code, and Playwright MCP. Sessions are named and isolated with persistent data in `~/.config/developer/sessions/`. Secrets are managed via `scripts/manage-env.js` and injected as `/home/developer/.env`.
+Docker container (Ubuntu 24.04, Dockerfile at `docker/brainbox/Dockerfile`) with non-root `developer` user, pre-installed Claude Code, and Playwright MCP. Container setup files (`.bashrc`, `settings.json`, `ttyd-wrapper.sh`, `CLAUDE.md`) live in `docker/brainbox/setup/`. Sessions are named and isolated with persistent data in `~/.config/developer/sessions/`. Secrets are managed via `scripts/manage-env.js` and injected as `/home/developer/.env`.
 
 ### Dashboard Architecture
 
