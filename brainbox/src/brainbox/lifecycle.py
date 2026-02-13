@@ -76,7 +76,7 @@ def _find_available_port(start: int = 7681) -> int:
 # ---------------------------------------------------------------------------
 
 
-async def _verify_cosign(image: Any, slog: Any) -> None:
+async def _verify_cosign(image: Any, image_name: str, slog: Any) -> None:
     """Run cosign signature verification according to configured mode."""
     mode = settings.cosign.mode
     key_path = settings.cosign.key
@@ -108,7 +108,7 @@ async def _verify_cosign(image: Any, slog: Any) -> None:
     if not repo_digests:
         if mode == "enforce":
             raise ValueError(
-                f"Image '{settings.resolved_image}' has no repo digests — "
+                f"Image '{image_name}' has no repo digests — "
                 "cannot verify a local-only image in enforce mode"
             )
         slog.info(
@@ -118,7 +118,7 @@ async def _verify_cosign(image: Any, slog: Any) -> None:
         return
 
     # Run cosign verify
-    result = await _run(verify_image, settings.resolved_image, key_path, repo_digests)
+    result = await _run(verify_image, image_name, key_path, repo_digests)
 
     if result.verified:
         slog.info(
@@ -152,7 +152,9 @@ async def provision(
     token: Token | None = None,
 ) -> SessionContext:
     resolved_role = role or settings.role
-    container_name = f"{settings.resolved_prefix}{session_name}"
+    resolved_prefix = settings.container_prefix or f"{resolved_role}-"
+    resolved_image = settings.image or f"brainbox-{resolved_role}"
+    container_name = f"{resolved_prefix}{session_name}"
     resolved_port = port or _find_available_port()
     resolved_ttl = ttl if ttl is not None else settings.ttl
 
@@ -174,13 +176,13 @@ async def provision(
 
     # Check image exists
     try:
-        image = await _run(client.images.get, settings.resolved_image)
+        image = await _run(client.images.get, resolved_image)
     except Exception as exc:
         slog.error("container.provision_failed", metadata={"reason": str(exc)})
         raise
 
     # Cosign image signature verification
-    await _verify_cosign(image, slog)
+    await _verify_cosign(image, resolved_image, slog)
 
     # Remove existing container if present
     try:
@@ -191,7 +193,7 @@ async def provision(
 
     # Build create kwargs
     kwargs: dict[str, Any] = {
-        "image": settings.resolved_image,
+        "image": resolved_image,
         "name": container_name,
         "command": ["sleep", "infinity"],
         "ports": {"7681/tcp": ("127.0.0.1", resolved_port)},
@@ -240,7 +242,7 @@ async def provision(
     slog.info(
         "container.provisioned",
         metadata={
-            "image": settings.resolved_image,
+            "image": resolved_image,
             "role": resolved_role,
             "port": resolved_port,
             "hardened": hardened,

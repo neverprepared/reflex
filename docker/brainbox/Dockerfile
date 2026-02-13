@@ -133,9 +133,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 USER developer
 
 # =============================================================================
-# Claude Code — installed via npm (unpinned, latest at build time)
+# Claude Code — installed via official installer (latest at build time)
 # =============================================================================
-RUN bash -c '. "$NVM_DIR/nvm.sh" && npm install -g @anthropic-ai/claude-code'
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # =============================================================================
 # Playwright MCP — browser automation for Claude Code
