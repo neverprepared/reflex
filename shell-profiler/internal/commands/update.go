@@ -112,7 +112,7 @@ func UpdateProfile(profilesDir string, opts UpdateOptions) error {
 	if updated, err := updateSecretsTemplate(profileDir, opts.ProfileName, opts.DryRun); err != nil {
 		return fmt.Errorf("failed to update .env.secrets.tpl: %w", err)
 	} else if updated {
-		updates = append(updates, "Created .env.secrets.tpl for 1Password secret references")
+		updates = append(updates, "Updated .env.secrets.tpl (vault name migration or created new)")
 	}
 
 	// Add op inject block to .envrc if missing
@@ -590,17 +590,30 @@ build/
 
 func updateSecretsTemplate(profileDir, profileName string, dryRun bool) (bool, error) {
 	secretsTplPath := filepath.Join(profileDir, ".env.secrets.tpl")
+	vaultName := "workspace-" + strings.ToLower(profileName)
 
-	// Skip if already exists
-	if _, err := os.Stat(secretsTplPath); err == nil {
+	// If file exists, migrate vault names to lowercase
+	if data, err := os.ReadFile(secretsTplPath); err == nil {
+		content := string(data)
+		// Match old title-case convention: Workspace-Personal, Workspace-Work, etc.
+		oldVault := "Workspace-" + strings.ToUpper(profileName[:1]) + profileName[1:]
+		if strings.Contains(content, oldVault) {
+			if dryRun {
+				return true, nil
+			}
+			content = strings.ReplaceAll(content, oldVault, vaultName)
+			if err := os.WriteFile(secretsTplPath, []byte(content), 0644); err != nil {
+				return false, fmt.Errorf("failed to update .env.secrets.tpl: %w", err)
+			}
+			return true, nil
+		}
 		return false, nil
 	}
 
+	// File doesn't exist — create it
 	if dryRun {
 		return true, nil
 	}
-
-	vaultName := "workspace-" + strings.ToLower(profileName)
 
 	secretsTplContent := fmt.Sprintf(`# Secrets resolved from 1Password vault "%s" via op inject
 #
