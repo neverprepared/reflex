@@ -6,8 +6,8 @@ FROM brainbox-base
 # =============================================================================
 LABEL brainbox.role=performer
 
-# Cloud CLIs
-RUN brew install azure-cli awscli terraform kubectl
+# Cloud CLIs (terraform via HashiCorp tap — removed from homebrew-core due to BUSL)
+RUN brew tap hashicorp/tap && brew install azure-cli awscli hashicorp/tap/terraform kubectl
 
 # Claude config (no guardrail hook — full network access)
 COPY --chown=developer:developer docker/brainbox/setup/performer/CLAUDE.md /home/developer/.claude/CLAUDE.md
