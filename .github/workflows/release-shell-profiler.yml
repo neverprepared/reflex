@@ -143,7 +143,7 @@ jobs:
       - name: Sync formula to homebrew tap
         run: |
           VERSION="${{ needs.resolve.outputs.version }}"
-          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-shell-profiler.git /tmp/tap
+          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-agentic.git /tmp/tap
           mkdir -p /tmp/tap/Formula
           cp shell-profiler/Formula/shell-profiler.rb /tmp/tap/Formula/shell-profiler.rb
           cd /tmp/tap

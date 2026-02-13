@@ -101,7 +101,7 @@ jobs:
       - name: Sync formula to homebrew tap
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-container-lifecycle.git /tmp/tap
+          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-agentic.git /tmp/tap
           mkdir -p /tmp/tap/Formula
           cp container-lifecycle/Formula/container-lifecycle.rb /tmp/tap/Formula/container-lifecycle.rb
           cd /tmp/tap

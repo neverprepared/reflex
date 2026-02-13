@@ -124,11 +124,11 @@ No build commands. Architecture documents are organized by phase:
 
 | Package | Channels | Tag format |
 |---------|----------|------------|
-| shell-profiler | Homebrew (`neverprepared/shell-profiler`) | `shell-profiler/vX.Y.Z` |
-| container-lifecycle | Homebrew (`neverprepared/container-lifecycle`) | `container-lifecycle/vX.Y.Z` |
-| reflex | Plugin marketplace + Homebrew (`neverprepared/reflex`) | `reflex/vX.Y.Z` |
+| shell-profiler | Homebrew (`neverprepared/agentic`) | `shell-profiler/vX.Y.Z` |
+| container-lifecycle | Homebrew (`neverprepared/agentic`) | `container-lifecycle/vX.Y.Z` |
+| reflex | Plugin marketplace + Homebrew (`neverprepared/agentic`) | `reflex/vX.Y.Z` |
 
-Each package versions independently. Formulas live in `<package>/Formula/`.
+All formulas are distributed via a single consolidated tap: `brew install neverprepared/agentic/<package>`. Formulas live in `<package>/Formula/` in the monorepo and are synced to `neverprepared/homebrew-agentic` on release.
 
 ## Conventions
 
