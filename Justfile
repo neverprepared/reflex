@@ -13,7 +13,7 @@ bb-build:
     cd brainbox/dashboard && npm install && npx vite build
 
 bb-test:
-    cd brainbox && uv run pytest
+    cd brainbox && uv run python -m pytest
 
 bb-lint:
     cd brainbox && uv run ruff check src/
