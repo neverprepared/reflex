@@ -2,5 +2,22 @@
   "env": {
     "DISABLE_AUTOUPDATER": "1"
   },
-  "promptSuggestionEnabled": false
+  "promptSuggestionEnabled": false,
+  "sandbox": {
+    "allowUnsandboxedCommands": false
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|mcp__playwright__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/developer/.claude/hooks/network-guardrail.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
 }

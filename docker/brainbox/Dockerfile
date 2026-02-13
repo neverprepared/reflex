@@ -160,6 +160,9 @@ ENV DISABLE_AUTOUPDATER=1
 COPY --chown=developer:developer docker/brainbox/setup/CLAUDE.md /home/developer/.claude/CLAUDE.md
 COPY --chown=developer:developer docker/brainbox/setup/settings.json /home/developer/.claude/settings.json
 
+# Network guardrail hook — blocks outbound write operations (POST/PUT/DELETE/PATCH)
+COPY --chown=developer:developer docker/brainbox/setup/network-guardrail.py /home/developer/.claude/hooks/network-guardrail.py
+
 # =============================================================================
 # Skills — infrastructure (cloud) and development patterns from reflex
 # =============================================================================
@@ -190,8 +193,6 @@ COPY --chown=developer:developer reflex/plugins/reflex/skills/rag-wrapper/SKILL.
 # Register MCP servers
 # Playwright — browser automation (pre-installed above)
 RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add playwright -- npx @playwright/mcp --headless --browser chromium --no-sandbox'
-# Fetch — HTTP requests
-RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add fetch -- npx -y @anthropic-ai/mcp-fetch'
 # Memory — persistent key-value context
 RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add memory -- npx -y @modelcontextprotocol/server-memory'
 # Filesystem — scoped file access

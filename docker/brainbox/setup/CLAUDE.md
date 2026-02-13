@@ -19,6 +19,29 @@ Reference skills are available at `~/.claude/skills/`. Read the relevant SKILL.m
 - `~/.claude/skills/n8n-patterns/SKILL.md` — Workflow automation with n8n
 - `~/.claude/skills/qdrant-patterns/SKILL.md` — Vector database storage and semantic retrieval
 
+## Network Policy — Read-Only HTTP Access
+
+This container blocks **arbitrary HTTP write operations** while allowing git and GitHub workflows.
+
+**Allowed:**
+- `WebFetch` — GET-only, safe for reading APIs and web pages
+- `WebSearch` — search queries
+- `mcp__brave-search__*` — web search
+- `mcp__github__*` — all GitHub MCP tools (read and write)
+- `mcp__qdrant__*` — vector DB operations
+- `git push` / `git pull` — full git remote access
+- `gh` CLI — all commands (create PRs, issues, etc.)
+- `curl` / `wget` GET requests (no `-d`, `--data`, `-X POST`)
+
+**Blocked (hard deny, no override):**
+- `curl -X POST/PUT/DELETE/PATCH` or `curl -d/--data/--form`
+- `wget --post-data/--post-file`
+- `httpie POST/PUT/DELETE/PATCH`
+- `requests.post()` / `httpx.post()` and similar Python HTTP write calls
+- `mcp__playwright__click`, `fill`, `type`, `submit`, and other page interaction tools
+
+Do NOT attempt to bypass these restrictions. If a task requires raw HTTP writes (outside of git/GitHub), inform the user that this container blocks arbitrary HTTP write operations.
+
 ### Development
 - `~/.claude/skills/agent-builder/SKILL.md` — Build specialized sub-agents
 - `~/.claude/skills/workflow-builder/SKILL.md` — Multi-step automation workflows
