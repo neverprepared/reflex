@@ -4,9 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - "reflex-claude-marketplace/plugins/**"
-      - "reflex-claude-marketplace/docker/**"
-      - "reflex-claude-marketplace/VERSION"
+      - "reflex/plugins/**"
+      - "reflex/docker/**"
+      - "reflex/VERSION"
   workflow_dispatch:
     inputs:
       version:
@@ -29,8 +29,8 @@ jobs:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
-          config-file: reflex-claude-marketplace/release-please-config.json
-          manifest-file: reflex-claude-marketplace/.release-please-manifest.json
+          config-file: reflex/release-please-config.json
+          manifest-file: reflex/.release-please-manifest.json
 
   manual-release:
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -51,9 +51,9 @@ jobs:
         run: |
           VERSION="${{ inputs.version }}"
           tar -czf "reflex-${VERSION}.tar.gz" \
-            reflex-claude-marketplace/plugins/ \
-            reflex-claude-marketplace/docker/ \
-            reflex-claude-marketplace/VERSION
+            reflex/plugins/ \
+            reflex/docker/ \
+            reflex/VERSION
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
@@ -74,9 +74,9 @@ jobs:
         run: |
           VERSION="${{ needs.release-please.outputs.version }}"
           tar -czf "reflex-${VERSION}.tar.gz" \
-            reflex-claude-marketplace/plugins/ \
-            reflex-claude-marketplace/docker/ \
-            reflex-claude-marketplace/VERSION
+            reflex/plugins/ \
+            reflex/docker/ \
+            reflex/VERSION
 
       - name: Upload archive to release
         uses: softprops/action-gh-release@v2
@@ -110,7 +110,7 @@ jobs:
           VERSION="${{ steps.ver.outputs.VERSION }}"
           URL="https://github.com/neverprepared/ink-bunny/releases/download/reflex/v${VERSION}/reflex-${VERSION}.tar.gz"
           SHA=$(curl -sL "$URL" | sha256sum | awk '{print $1}')
-          FORMULA="reflex-claude-marketplace/Formula/reflex.rb"
+          FORMULA="reflex/Formula/reflex.rb"
 
           sed -i "s|url \".*\"|url \"${URL}\"|" "$FORMULA"
           sed -i "s/sha256 \".*\"/sha256 \"${SHA}\"/" "$FORMULA"
@@ -119,7 +119,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add reflex-claude-marketplace/Formula/reflex.rb
+          git add reflex/Formula/reflex.rb
           git diff --cached --quiet || git commit -m "formula: update reflex to v${{ steps.ver.outputs.VERSION }}"
           git push
 
@@ -128,7 +128,7 @@ jobs:
           VERSION="${{ steps.ver.outputs.VERSION }}"
           git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-ink-bunny.git /tmp/tap
           mkdir -p /tmp/tap/Formula
-          cp reflex-claude-marketplace/Formula/reflex.rb /tmp/tap/Formula/reflex.rb
+          cp reflex/Formula/reflex.rb /tmp/tap/Formula/reflex.rb
           cd /tmp/tap
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

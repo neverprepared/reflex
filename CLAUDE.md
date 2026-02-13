@@ -8,7 +8,7 @@ This is a monorepo for an agentic development platform with five packages:
 
 - **brainbox/** — FastAPI backend, Svelte dashboard, and Python package for managing sandboxed Claude Code sessions
 - **docker/** — Dockerfiles and compose configs: `docker/brainbox/` (container image + setup), `docker/qdrant/`, `docker/langfuse/`
-- **reflex-claude-marketplace/** — Claude Code plugin providing skills, agents, slash commands, workflow orchestration, RAG integration, and MCP server management
+- **reflex/** — Claude Code plugin providing skills, agents, slash commands, workflow orchestration, RAG integration, and MCP server management
 - **shell-profiler/** — Go CLI for managing workspace-specific environment profiles via direnv
 - **docs/** — Three-phase architectural documentation (Foundation → Hardened → Production-ready) describing the broader agentic platform vision
 
@@ -22,17 +22,17 @@ Four pillars, all defined as markdown files:
 
 | Pillar | Location | Format |
 |--------|----------|--------|
-| Skills (42) | `reflex-claude-marketplace/plugins/reflex/skills/<name>/SKILL.md` | Pattern/knowledge definitions |
-| Commands (18) | `reflex-claude-marketplace/plugins/reflex/commands/<name>.md` | Slash commands (`/reflex:*`) |
-| Agents (2) | `reflex-claude-marketplace/plugins/reflex/agents/<name>.md` | rag-proxy, workflow-orchestrator |
-| Workflows (4) | `reflex-claude-marketplace/plugins/reflex/workflow-templates/templates/` | jira-driven, github-driven, standalone, custom |
+| Skills (42) | `reflex/plugins/reflex/skills/<name>/SKILL.md` | Pattern/knowledge definitions |
+| Commands (18) | `reflex/plugins/reflex/commands/<name>.md` | Slash commands (`/reflex:*`) |
+| Agents (2) | `reflex/plugins/reflex/agents/<name>.md` | rag-proxy, workflow-orchestrator |
+| Workflows (4) | `reflex/plugins/reflex/workflow-templates/templates/` | jira-driven, github-driven, standalone, custom |
 
 Key config files:
-- `reflex-claude-marketplace/plugins/reflex/.claude-plugin/plugin.json` — plugin manifest
-- `reflex-claude-marketplace/plugins/reflex/mcp-catalog.json` — MCP server registry (11+ servers)
-- `reflex-claude-marketplace/plugins/reflex/hooks/hooks.json` — hook configurations (guardrails, LangFuse, notifications)
+- `reflex/plugins/reflex/.claude-plugin/plugin.json` — plugin manifest
+- `reflex/plugins/reflex/mcp-catalog.json` — MCP server registry (11+ servers)
+- `reflex/plugins/reflex/hooks/hooks.json` — hook configurations (guardrails, LangFuse, notifications)
 
-Scripts in `reflex-claude-marketplace/plugins/reflex/scripts/` implement hooks and tooling: `guardrail.py` (destructive op blocking), `ingest.py` (Qdrant ingestion), `summarize.py` (transcript summarizer), `mcp-generate.sh` (MCP registration).
+Scripts in `reflex/plugins/reflex/scripts/` implement hooks and tooling: `guardrail.py` (destructive op blocking), `ingest.py` (Qdrant ingestion), `summarize.py` (transcript summarizer), `mcp-generate.sh` (MCP registration).
 
 ### Brainbox Architecture
 
@@ -153,7 +153,7 @@ No AI attribution — no "Generated with Claude Code" footers, no Co-Authored-By
 |---------|----------|--------|
 | shell-profiler | Manual tag push | — |
 | brainbox | Manual tag push | — |
-| reflex | release-please (conventional commits) | `reflex-claude-marketplace/release-please-config.json` |
+| reflex | release-please (conventional commits) | `reflex/release-please-config.json` |
 
 ### CI/CD
 

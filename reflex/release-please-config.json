@@ -3,7 +3,7 @@
   "release-type": "simple",
   "include-component-in-tag": true,
   "packages": {
-    "reflex-claude-marketplace": {
+    "reflex": {
       "release-type": "simple",
       "component": "reflex",
       "bump-minor-pre-major": true,

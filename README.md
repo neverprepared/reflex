@@ -5,7 +5,7 @@ A monorepo for an agentic development platform with three tools:
 | Package | Description |
 |---------|-------------|
 | **[brainbox](brainbox/)** | Sandboxed Docker container orchestration for Claude Code with a web dashboard |
-| **[reflex](reflex-claude-marketplace/)** | Claude Code plugin providing skills, agents, slash commands, and MCP server management |
+| **[reflex](reflex/)** | Claude Code plugin providing skills, agents, slash commands, and MCP server management |
 | **[shell-profiler](shell-profiler/)** | Go CLI for managing workspace-specific environment profiles via direnv |
 
 ## Install

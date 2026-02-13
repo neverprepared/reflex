@@ -44,13 +44,13 @@ sp-lint:
 # === Reflex (Plugin) ===
 
 reflex-dev:
-    claude --plugin-dir reflex-claude-marketplace
+    claude --plugin-dir reflex
 
 reflex-qdrant:
-    cd reflex-claude-marketplace/docker/qdrant && docker compose up -d
+    cd reflex/docker/qdrant && docker compose up -d
 
 reflex-langfuse:
-    cd reflex-claude-marketplace/docker/langfuse && docker compose up -d
+    cd reflex/docker/langfuse && docker compose up -d
 
 # === Cross-cutting ===
 
