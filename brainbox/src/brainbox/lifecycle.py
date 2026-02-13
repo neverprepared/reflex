@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -15,6 +16,7 @@ import docker
 from docker.errors import NotFound
 
 from .config import settings
+from .cosign import CosignVerificationError, verify_image
 from .hardening import get_hardening_kwargs, get_legacy_kwargs
 from .log import get_logger
 from .models import SessionContext, SessionState, Token
@@ -70,6 +72,71 @@ def _find_available_port(start: int = 7681) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Cosign verification
+# ---------------------------------------------------------------------------
+
+
+async def _verify_cosign(image: Any, slog: Any) -> None:
+    """Run cosign signature verification according to configured mode."""
+    mode = settings.cosign.mode
+    key_path = settings.cosign.key
+
+    if mode == "off":
+        slog.info("container.cosign_skipped", metadata={"reason": "mode is off"})
+        return
+
+    # No key configured
+    if not key_path:
+        if mode == "enforce":
+            raise ValueError("Cosign enforce mode requires a key — set CL_COSIGN__KEY")
+        slog.warning("container.cosign_skipped", metadata={"reason": "no key configured"})
+        return
+
+    # Key file missing on disk
+    if not os.path.isfile(key_path):
+        if mode == "enforce":
+            raise FileNotFoundError(f"Cosign public key not found: {key_path}")
+        slog.warning(
+            "container.cosign_skipped",
+            metadata={"reason": f"key file not found: {key_path}"},
+        )
+        return
+
+    # Resolve repo digests from the pulled image
+    repo_digests: list[str] = image.attrs.get("RepoDigests", [])
+
+    if not repo_digests:
+        if mode == "enforce":
+            raise ValueError(
+                f"Image '{settings.image}' has no repo digests — "
+                "cannot verify a local-only image in enforce mode"
+            )
+        slog.info(
+            "container.cosign_skipped",
+            metadata={"reason": "local-only image (no repo digests)"},
+        )
+        return
+
+    # Run cosign verify
+    result = await _run(verify_image, settings.image, key_path, repo_digests)
+
+    if result.verified:
+        slog.info(
+            "container.cosign_verified",
+            metadata={"image_ref": result.image_ref},
+        )
+        return
+
+    if mode == "enforce":
+        raise CosignVerificationError(result)
+
+    slog.warning(
+        "container.cosign_failed",
+        metadata={"image_ref": result.image_ref, "stderr": result.stderr},
+    )
+
+
+# ---------------------------------------------------------------------------
 # Phase 1: Provision
 # ---------------------------------------------------------------------------
 
@@ -104,13 +171,13 @@ async def provision(
 
     # Check image exists
     try:
-        await _run(client.images.get, settings.image)
+        image = await _run(client.images.get, settings.image)
     except Exception as exc:
         slog.error("container.provision_failed", metadata={"reason": str(exc)})
         raise
 
-    # cosign stub
-    slog.warning("container.cosign_skipped", metadata={"reason": "Signature verification not yet implemented"})
+    # Cosign image signature verification
+    await _verify_cosign(image, slog)
 
     # Remove existing container if present
     try:

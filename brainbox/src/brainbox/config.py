@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings
@@ -37,6 +38,11 @@ class HardeningSettings(BaseSettings):
     seccomp_profile: str = "default"
 
 
+class CosignSettings(BaseSettings):
+    mode: Literal["off", "warn", "enforce"] = "warn"
+    key: str = ""  # path to PEM public key file
+
+
 class HubSettings(BaseSettings):
     flush_interval: int = 30  # seconds
     prune_completed_after: int = 3600  # seconds
@@ -59,9 +65,10 @@ class Settings(BaseSettings):
 
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     hardening: HardeningSettings = Field(default_factory=HardeningSettings)
+    cosign: CosignSettings = Field(default_factory=CosignSettings)
     hub: HubSettings = Field(default_factory=HubSettings)
 
-    model_config = {"env_prefix": "CL_"}
+    model_config = {"env_prefix": "CL_", "env_nested_delimiter": "__"}
 
     @property
     def secrets_dir(self) -> Path:
