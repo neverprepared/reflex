@@ -78,9 +78,7 @@ class TestCosignRun:
         )
 
     def test_failure_returns_result(self):
-        fake = subprocess.CompletedProcess(
-            args=["cosign"], returncode=1, stdout="", stderr="error"
-        )
+        fake = subprocess.CompletedProcess(args=["cosign"], returncode=1, stdout="", stderr="error")
         with patch("brainbox.cosign.subprocess.run", return_value=fake):
             result = _cosign_run(["verify", "--key", "k.pub", "img"])
 

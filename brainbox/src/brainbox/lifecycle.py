@@ -108,7 +108,7 @@ async def _verify_cosign(image: Any, slog: Any) -> None:
     if not repo_digests:
         if mode == "enforce":
             raise ValueError(
-                f"Image '{settings.image}' has no repo digests — "
+                f"Image '{settings.resolved_image}' has no repo digests — "
                 "cannot verify a local-only image in enforce mode"
             )
         slog.info(
@@ -118,7 +118,7 @@ async def _verify_cosign(image: Any, slog: Any) -> None:
         return
 
     # Run cosign verify
-    result = await _run(verify_image, settings.image, key_path, repo_digests)
+    result = await _run(verify_image, settings.resolved_image, key_path, repo_digests)
 
     if result.verified:
         slog.info(
@@ -144,13 +144,15 @@ async def _verify_cosign(image: Any, slog: Any) -> None:
 async def provision(
     *,
     session_name: str = "default",
+    role: str | None = None,
     port: int | None = None,
     hardened: bool = True,
     ttl: int | None = None,
     volume_mounts: list[str] | None = None,
     token: Token | None = None,
 ) -> SessionContext:
-    container_name = f"{settings.container_prefix}{session_name}"
+    resolved_role = role or settings.role
+    container_name = f"{settings.resolved_prefix}{session_name}"
     resolved_port = port or _find_available_port()
     resolved_ttl = ttl if ttl is not None else settings.ttl
 
@@ -158,6 +160,7 @@ async def provision(
         session_name=session_name,
         container_name=container_name,
         port=resolved_port,
+        role=resolved_role,
         state=SessionState.PROVISIONING,
         created_at=_now_ms(),
         ttl=resolved_ttl,
@@ -171,7 +174,7 @@ async def provision(
 
     # Check image exists
     try:
-        image = await _run(client.images.get, settings.image)
+        image = await _run(client.images.get, settings.resolved_image)
     except Exception as exc:
         slog.error("container.provision_failed", metadata={"reason": str(exc)})
         raise
@@ -188,10 +191,11 @@ async def provision(
 
     # Build create kwargs
     kwargs: dict[str, Any] = {
-        "image": settings.image,
+        "image": settings.resolved_image,
         "name": container_name,
         "command": ["sleep", "infinity"],
         "ports": {"7681/tcp": ("127.0.0.1", resolved_port)},
+        "labels": {"brainbox.managed": "true", "brainbox.role": resolved_role},
         "detach": True,
     }
 
@@ -236,7 +240,8 @@ async def provision(
     slog.info(
         "container.provisioned",
         metadata={
-            "image": settings.image,
+            "image": settings.resolved_image,
+            "role": resolved_role,
             "port": resolved_port,
             "hardened": hardened,
             "ttl": resolved_ttl,
@@ -353,7 +358,7 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
                 slog.warning("container.token_write_failed", metadata={"reason": str(exc)})
 
         # Launch ttyd + tmux
-        title = f"Developer - {ctx.session_name}"
+        title = f"{ctx.role.capitalize()} - {ctx.session_name}"
         try:
             await _run(
                 container.exec_run,
@@ -433,6 +438,7 @@ async def recycle(ctx_or_name: SessionContext | str, reason: str = "manual") -> 
 async def run_pipeline(
     *,
     session_name: str = "default",
+    role: str | None = None,
     port: int | None = None,
     hardened: bool = True,
     ttl: int | None = None,
@@ -441,6 +447,7 @@ async def run_pipeline(
 ) -> SessionContext:
     ctx = await provision(
         session_name=session_name,
+        role=role,
         port=port,
         hardened=hardened,
         ttl=ttl,

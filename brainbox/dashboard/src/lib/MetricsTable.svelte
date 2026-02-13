@@ -42,6 +42,7 @@
       <thead>
         <tr>
           <th>Container</th>
+          <th>Role</th>
           <th>CPU</th>
           <th>Memory</th>
           <th>Uptime</th>
@@ -50,7 +51,8 @@
       <tbody>
         {#each metrics as m (m.name)}
           <tr>
-            <td class="name">{m.name.replace('developer-', '')}</td>
+            <td class="name">{m.session_name || m.name}</td>
+            <td class="role-cell"><span class="role-badge" data-role={m.role || 'developer'}>{m.role || 'developer'}</span></td>
             <td class="num">{m.cpu_percent.toFixed(1)}%</td>
             <td class="num">{m.mem_usage_human} / {m.mem_limit_human}</td>
             <td class="num">{formatUptime(m.uptime_seconds)}</td>
@@ -107,4 +109,16 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
     font-size: 13px;
   }
+  .role-cell { padding: 10px 12px; }
+  .role-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+  }
+  .role-badge[data-role="developer"] { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+  .role-badge[data-role="researcher"] { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+  .role-badge[data-role="performer"] { background: rgba(249, 115, 22, 0.15); color: #f97316; }
 </style>

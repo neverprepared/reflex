@@ -36,7 +36,8 @@
     if (data.success) onUpdate();
   }
 
-  let displayName = $derived(session.name.replace('developer-', ''));
+  let displayName = $derived(session.session_name || session.name);
+  let displayRole = $derived(session.role || 'developer');
   let displayUrl = $derived(session.url ? session.url.replace('http://', '') : '');
 </script>
 
@@ -51,6 +52,7 @@
   <div class="card-header">
     <span class="status-dot" class:active={session.active}></span>
     <a href={'#'} class="session-name" onclick={(e) => { e.preventDefault(); onInfo(session.name); }}>{displayName}</a>
+    <span class="role-badge" data-role={displayRole}>{displayRole}</span>
   </div>
 
   <div class="card-url">
@@ -117,6 +119,19 @@
     font-size: 15px;
   }
   .session-name:hover { color: #f59e0b; }
+
+  .role-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .role-badge[data-role="developer"] { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
+  .role-badge[data-role="researcher"] { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
+  .role-badge[data-role="performer"] { background: rgba(249, 115, 22, 0.15); color: #f97316; }
 
   .card-url { margin-bottom: 6px; }
   .card-url a {

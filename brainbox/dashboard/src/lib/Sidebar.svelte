@@ -6,7 +6,7 @@
 <nav class="sidebar" class:collapsed={sidebarCollapsed.value}>
   <div class="sidebar-header">
     {#if !sidebarCollapsed.value}
-      <span class="brand">developer</span>
+      <span class="brand">brainbox</span>
     {/if}
   </div>
 

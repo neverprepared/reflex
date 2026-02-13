@@ -50,8 +50,9 @@ class HubSettings(BaseSettings):
 
 
 class Settings(BaseSettings):
-    image: str = "developer"
-    container_prefix: str = "developer-"
+    role: str = "developer"
+    image: str = ""
+    container_prefix: str = ""
     user: str = "65534:65534"
     config_dir: Path = Field(default_factory=_default_config_dir)
 
@@ -69,6 +70,14 @@ class Settings(BaseSettings):
     hub: HubSettings = Field(default_factory=HubSettings)
 
     model_config = {"env_prefix": "CL_", "env_nested_delimiter": "__"}
+
+    @property
+    def resolved_image(self) -> str:
+        return self.image or f"brainbox-{self.role}"
+
+    @property
+    def resolved_prefix(self) -> str:
+        return self.container_prefix or f"{self.role}-"
 
     @property
     def secrets_dir(self) -> Path:

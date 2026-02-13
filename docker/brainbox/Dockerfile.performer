@@ -1,0 +1,48 @@
+FROM brainbox-base
+
+# =============================================================================
+# Performer container — action agents with full network access
+# Runs terraform, az, aws, kubectl — no HTTP write guardrail.
+# =============================================================================
+LABEL brainbox.role=performer
+
+# Cloud CLIs
+RUN brew install azure-cli awscli terraform kubectl
+
+# Claude config (no guardrail hook — full network access)
+COPY --chown=developer:developer docker/brainbox/setup/performer/CLAUDE.md /home/developer/.claude/CLAUDE.md
+COPY --chown=developer:developer docker/brainbox/setup/performer/settings.json /home/developer/.claude/settings.json
+
+# Skills — Infrastructure / Action
+COPY --chown=developer:developer reflex/plugins/reflex/skills/aws-patterns/SKILL.md /home/developer/.claude/skills/aws-patterns/SKILL.md
+COPY --chown=developer:developer reflex/plugins/reflex/skills/azure-resource-discovery/SKILL.md /home/developer/.claude/skills/azure-resource-discovery/SKILL.md
+COPY --chown=developer:developer reflex/plugins/reflex/skills/terraform-patterns/SKILL.md /home/developer/.claude/skills/terraform-patterns/SKILL.md
+COPY --chown=developer:developer reflex/plugins/reflex/skills/kubernetes-patterns/SKILL.md /home/developer/.claude/skills/kubernetes-patterns/SKILL.md
+COPY --chown=developer:developer reflex/plugins/reflex/skills/docker-patterns/SKILL.md /home/developer/.claude/skills/docker-patterns/SKILL.md
+COPY --chown=developer:developer reflex/plugins/reflex/skills/observability-patterns/SKILL.md /home/developer/.claude/skills/observability-patterns/SKILL.md
+COPY --chown=developer:developer reflex/plugins/reflex/skills/database-migration-patterns/SKILL.md /home/developer/.claude/skills/database-migration-patterns/SKILL.md
+COPY --chown=developer:developer reflex/plugins/reflex/skills/n8n-patterns/SKILL.md /home/developer/.claude/skills/n8n-patterns/SKILL.md
+
+# MCP servers (action-focused: GitHub, Filesystem, Memory, Playwright)
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add github -- npx -y @modelcontextprotocol/server-github'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /home/developer/workspace'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add memory -- npx -y @modelcontextprotocol/server-memory'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add playwright -- npx @playwright/mcp --headless --browser chromium --no-sandbox'
+
+# Skip onboarding
+RUN bash -c 'if [ -f /home/developer/.claude.json ]; then \
+    jq ". + {hasCompletedOnboarding: true, bypassPermissionsModeAccepted: true}" /home/developer/.claude.json > /tmp/.claude.json.tmp && \
+    mv /tmp/.claude.json.tmp /home/developer/.claude.json; \
+    else echo "{\"hasCompletedOnboarding\":true,\"bypassPermissionsModeAccepted\":true}" > /home/developer/.claude.json; fi'
+
+# Shell config + ttyd wrapper
+COPY --chown=developer:developer docker/brainbox/setup/.bashrc /tmp/.bashrc.extra
+RUN cat /tmp/.bashrc.extra >> /home/developer/.bashrc && rm /tmp/.bashrc.extra
+
+COPY --chown=developer:developer docker/brainbox/setup/ttyd-wrapper.sh /home/developer/ttyd-wrapper.sh
+RUN chmod +x /home/developer/ttyd-wrapper.sh
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD pgrep -x "claude" > /dev/null || exit 1
+
+CMD ["/bin/bash", "-l"]

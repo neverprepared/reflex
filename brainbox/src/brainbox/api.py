@@ -72,7 +72,7 @@ async def _watch_docker_events() -> None:
         """Run in thread — blocks on Docker event stream."""
         try:
             client = docker.from_env()
-            for event in client.events(filters={"name": "developer"}, decode=True):
+            for event in client.events(filters={"label": "brainbox.managed=true"}, decode=True):
                 action = event.get("Action", "")
                 if action in ("create", "start", "stop", "die", "destroy"):
                     loop.call_soon_threadsafe(_broadcast_sse, action)
@@ -158,12 +158,29 @@ app = FastAPI(title="Brainbox", version="0.2.0", lifespan=lifespan)
 # ---------------------------------------------------------------------------
 
 
+_ROLE_PREFIXES = ("developer-", "researcher-", "performer-")
+
+
+def _extract_session_name(container_name: str) -> str:
+    """Strip any known role prefix from a container name."""
+    for prefix in _ROLE_PREFIXES:
+        if container_name.startswith(prefix):
+            return container_name[len(prefix) :]
+    return container_name
+
+
+def _extract_role(container: Any) -> str:
+    """Get the role label from a container, defaulting to 'developer'."""
+    labels = container.labels or {}
+    return labels.get("brainbox.role", "developer")
+
+
 def _get_sessions_info() -> list[dict[str, Any]]:
     """Get session info from Docker."""
     sessions = []
     try:
         client = docker.from_env()
-        containers = client.containers.list(all=True, filters={"name": "developer-"})
+        containers = client.containers.list(all=True, filters={"label": "brainbox.managed=true"})
 
         for c in containers:
             name = c.name
@@ -194,6 +211,8 @@ def _get_sessions_info() -> list[dict[str, Any]]:
             sessions.append(
                 {
                     "name": name,
+                    "session_name": _extract_session_name(name),
+                    "role": _extract_role(c),
                     "port": port,
                     "url": f"http://localhost:{port}" if port else None,
                     "volume": volume,
@@ -245,7 +264,7 @@ async def api_list_sessions():
 async def api_stop_session(request: Request):
     body = await request.json()
     name = body.get("name", "")
-    session_name = name.replace("developer-", "")
+    session_name = _extract_session_name(name)
     try:
         await recycle(session_name, reason="dashboard_stop")
         return {"success": True}
@@ -264,7 +283,7 @@ async def api_stop_session(request: Request):
 async def api_delete_session(request: Request):
     body = await request.json()
     name = body.get("name", "")
-    session_name = name.replace("developer-", "")
+    session_name = _extract_session_name(name)
     try:
         await recycle(session_name, reason="dashboard_delete")
         return {"success": True}
@@ -282,7 +301,7 @@ async def api_delete_session(request: Request):
 async def api_start_session(request: Request):
     body = await request.json()
     name = body.get("name", "")
-    session_name = name.replace("developer-", "")
+    session_name = _extract_session_name(name)
     try:
         ctx = await provision(session_name=session_name, hardened=False)
         await configure(ctx)
@@ -316,10 +335,12 @@ async def api_start_session(request: Request):
 async def api_create_session(request: Request):
     body = await request.json()
     name = body.get("name")
+    role = body.get("role")
     volume = body.get("volume")
     try:
         ctx = await run_pipeline(
             session_name=name or "default",
+            role=role,
             hardened=False,
             volume_mounts=[volume] if volume else [],
         )
@@ -339,7 +360,7 @@ async def api_container_metrics():
     results = []
     try:
         client = docker.from_env()
-        containers = client.containers.list(filters={"name": "developer-"})
+        containers = client.containers.list(filters={"label": "brainbox.managed=true"})
         for c in containers:
             try:
                 stats = c.stats(stream=False)
@@ -361,6 +382,8 @@ async def api_container_metrics():
                 results.append(
                     {
                         "name": c.name,
+                        "session_name": _extract_session_name(c.name),
+                        "role": _extract_role(c),
                         "cpu_percent": round(cpu_pct, 2),
                         "mem_usage": mem_usage,
                         "mem_usage_human": _human_bytes(mem_usage),

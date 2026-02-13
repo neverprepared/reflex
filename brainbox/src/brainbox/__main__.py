@@ -19,6 +19,7 @@ def main() -> None:
     # Common opts
     def add_session_opts(p: argparse.ArgumentParser) -> None:
         p.add_argument("--session", default="default")
+        p.add_argument("--role", choices=["developer", "researcher", "performer"], default=None)
         p.add_argument("--port", type=int, default=None)
         p.add_argument("--hardened", action="store_true", default=False)
         p.add_argument("--ttl", type=int, default=None)
@@ -76,6 +77,7 @@ async def _provision(args: argparse.Namespace) -> None:
 
     ctx = await provision(
         session_name=args.session,
+        role=args.role,
         port=args.port,
         hardened=args.hardened,
         ttl=args.ttl,
@@ -89,6 +91,7 @@ async def _run_pipeline(args: argparse.Namespace) -> None:
 
     ctx = await run_pipeline(
         session_name=args.session,
+        role=args.role,
         port=args.port,
         hardened=args.hardened,
         ttl=args.ttl,

@@ -1,7 +1,12 @@
 <script>
   let { name, onClose } = $props();
 
-  let displayName = $derived(name.replace('developer-', ''));
+  let displayName = $derived.by(() => {
+    for (const prefix of ['developer-', 'researcher-', 'performer-']) {
+      if (name.startsWith(prefix)) return name.slice(prefix.length);
+    }
+    return name;
+  });
   let execCmd = $derived(`docker exec -it ${name} tmux attach -t main`);
   let copied = $state(false);
 

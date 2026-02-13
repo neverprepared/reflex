@@ -6,15 +6,19 @@ LIB_DIR="$SCRIPT_DIR/../lib"
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/developer"
 SECRETS_DIR="$CONFIG_DIR/.secrets"
 SESSION_NAME=""
+ROLE=""
 VOLUME_MOUNT=""
 NO_OPEN=false
 QUERY=""
 
 # Parse arguments
-while getopts "s:v:nq:" opt; do
+while getopts "s:r:v:nq:" opt; do
     case $opt in
         s)
             SESSION_NAME="$OPTARG"
+            ;;
+        r)
+            ROLE="$OPTARG"
             ;;
         v)
             VOLUME_MOUNT="$OPTARG"
@@ -26,14 +30,16 @@ while getopts "s:v:nq:" opt; do
             QUERY="$OPTARG"
             ;;
         *)
-            echo "Usage: $0 [-s session_name] [-v /host/path:/container/path] [-n] [-q \"question\"]"
+            echo "Usage: $0 [-s session_name] [-r role] [-v /host/path:/container/path] [-n] [-q \"question\"]"
+            echo "  -r role: developer (default), researcher, performer"
             exit 1
             ;;
     esac
 done
 
 SESSION_NAME="${SESSION_NAME:-default}"
-CONTAINER_NAME="developer-${SESSION_NAME}"
+ROLE="${ROLE:-developer}"
+CONTAINER_NAME="${ROLE}-${SESSION_NAME}"
 
 # === 1Password detection ===
 
@@ -116,7 +122,7 @@ fi
 
 # === Delegate to lifecycle manager (legacy/dev mode — hardened=false) ===
 
-LIFECYCLE_ARGS="run --session $SESSION_NAME"
+LIFECYCLE_ARGS="run --session $SESSION_NAME --role $ROLE"
 
 if [ -n "$VOLUME_MOUNT" ]; then
     LIFECYCLE_ARGS="$LIFECYCLE_ARGS --volume $VOLUME_MOUNT"
@@ -152,7 +158,7 @@ if [ -f "$SECRETS_DIR/GH_TOKEN" ]; then
 fi
 
 echo ""
-echo "Developer session running at: http://localhost:${PORT}"
+echo "${ROLE^} session running at: http://localhost:${PORT}"
 
 # Query mode - send query to the interactive session
 if [ -n "$QUERY" ]; then

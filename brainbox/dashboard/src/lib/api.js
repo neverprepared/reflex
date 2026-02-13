@@ -32,11 +32,11 @@ export async function startSession(name) {
   return res.json();
 }
 
-export async function createSession({ name, volume, query, openTab }) {
+export async function createSession({ name, role, volume, query, openTab }) {
   const res = await fetch('/api/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, volume, query, openTab }),
+    body: JSON.stringify({ name, role, volume, query, openTab }),
   });
   return res.json();
 }

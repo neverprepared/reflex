@@ -30,7 +30,7 @@
     refreshKey++;
   }
 
-  let displayName = $derived(session.name.replace('developer-', ''));
+  let displayName = $derived(session.session_name || session.name);
 </script>
 
 <div class="frame">

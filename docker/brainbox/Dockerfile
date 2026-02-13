@@ -151,74 +151,7 @@ RUN bash -c '. "$NVM_DIR/nvm.sh" && npm install -g @playwright/mcp' && \
 USER developer
 
 # =============================================================================
-# Claude Code configuration — pre-configure for container/headless use
+# Base image complete — role-specific Dockerfiles extend from here
 # =============================================================================
 ENV BASH_ENV=/home/developer/.env
 ENV DISABLE_AUTOUPDATER=1
-
-# Bake Claude config into image
-COPY --chown=developer:developer docker/brainbox/setup/CLAUDE.md /home/developer/.claude/CLAUDE.md
-COPY --chown=developer:developer docker/brainbox/setup/settings.json /home/developer/.claude/settings.json
-
-# Network guardrail hook — blocks outbound write operations (POST/PUT/DELETE/PATCH)
-COPY --chown=developer:developer docker/brainbox/setup/network-guardrail.py /home/developer/.claude/hooks/network-guardrail.py
-
-# =============================================================================
-# Skills — infrastructure (cloud) and development patterns from reflex
-# =============================================================================
-
-# Infrastructure / Cloud
-COPY --chown=developer:developer reflex/plugins/reflex/skills/aws-patterns/SKILL.md /home/developer/.claude/skills/aws-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/azure-resource-discovery/SKILL.md /home/developer/.claude/skills/azure-resource-discovery/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/terraform-patterns/SKILL.md /home/developer/.claude/skills/terraform-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/kubernetes-patterns/SKILL.md /home/developer/.claude/skills/kubernetes-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/docker-patterns/SKILL.md /home/developer/.claude/skills/docker-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/observability-patterns/SKILL.md /home/developer/.claude/skills/observability-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/database-migration-patterns/SKILL.md /home/developer/.claude/skills/database-migration-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/n8n-patterns/SKILL.md /home/developer/.claude/skills/n8n-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/qdrant-patterns/SKILL.md /home/developer/.claude/skills/qdrant-patterns/SKILL.md
-
-# Development
-COPY --chown=developer:developer reflex/plugins/reflex/skills/agent-builder/SKILL.md /home/developer/.claude/skills/agent-builder/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/workflow-builder/SKILL.md /home/developer/.claude/skills/workflow-builder/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/router-builder/SKILL.md /home/developer/.claude/skills/router-builder/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/mcp-server-builder/SKILL.md /home/developer/.claude/skills/mcp-server-builder/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/workspace-builder/SKILL.md /home/developer/.claude/skills/workspace-builder/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/project-onboarding/SKILL.md /home/developer/.claude/skills/project-onboarding/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/task-decomposition/SKILL.md /home/developer/.claude/skills/task-decomposition/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/analysis-patterns/SKILL.md /home/developer/.claude/skills/analysis-patterns/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/rag-builder/SKILL.md /home/developer/.claude/skills/rag-builder/SKILL.md
-COPY --chown=developer:developer reflex/plugins/reflex/skills/rag-wrapper/SKILL.md /home/developer/.claude/skills/rag-wrapper/SKILL.md
-
-# Register MCP servers
-# Playwright — browser automation (pre-installed above)
-RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add playwright -- npx @playwright/mcp --headless --browser chromium --no-sandbox'
-# Memory — persistent key-value context
-RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add memory -- npx -y @modelcontextprotocol/server-memory'
-# Filesystem — scoped file access
-RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /home/developer/workspace'
-# GitHub — repos, issues, PRs (needs GITHUB_TOKEN at runtime)
-RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add github -- npx -y @modelcontextprotocol/server-github'
-# Brave Search — web search (needs BRAVE_API_KEY at runtime)
-RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add brave-search -- npx -y @anthropic-ai/mcp-brave-search'
-# Qdrant — vector database for RAG (needs QDRANT_URL at runtime)
-RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add qdrant -- uvx --python 3.12 --with fastembed mcp-server-qdrant'
-
-# Skip onboarding so CLAUDE_CODE_OAUTH_TOKEN works without interactive login
-RUN bash -c 'if [ -f /home/developer/.claude.json ]; then \
-    jq ". + {hasCompletedOnboarding: true, bypassPermissionsModeAccepted: true}" /home/developer/.claude.json > /tmp/.claude.json.tmp && \
-    mv /tmp/.claude.json.tmp /home/developer/.claude.json; \
-    else echo "{\"hasCompletedOnboarding\":true,\"bypassPermissionsModeAccepted\":true}" > /home/developer/.claude.json; fi'
-
-# Shell aliases and shortcuts (appended to existing .bashrc)
-COPY --chown=developer:developer docker/brainbox/setup/.bashrc /tmp/.bashrc.extra
-RUN cat /tmp/.bashrc.extra >> /home/developer/.bashrc && rm /tmp/.bashrc.extra
-
-# ttyd wrapper script
-COPY --chown=developer:developer docker/brainbox/setup/ttyd-wrapper.sh /home/developer/ttyd-wrapper.sh
-RUN chmod +x /home/developer/ttyd-wrapper.sh
-
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-  CMD pgrep -x "claude" > /dev/null || exit 1
-
-CMD ["/bin/bash", "-l"]

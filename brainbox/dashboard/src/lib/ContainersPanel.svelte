@@ -93,7 +93,7 @@
 
 {#if showNewModal}
   <NewSessionModal
-    existingNames={sessions.map(s => s.name.replace('developer-', ''))}
+    existingNames={sessions.map(s => s.session_name || s.name)}
     onClose={() => showNewModal = false}
     onCreate={handleSessionUpdate}
   />

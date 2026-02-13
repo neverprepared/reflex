@@ -160,8 +160,18 @@ class TestResolveFromOp:
                 "title": "langfuse-api",
                 "fields": [
                     {"id": "username", "type": "STRING", "label": "public-key", "value": "pk-123"},
-                    {"id": "password", "type": "CONCEALED", "label": "secret-key", "value": "sk-456"},
-                    {"id": "notesPlain", "type": "STRING", "label": "notesPlain", "value": "some note"},
+                    {
+                        "id": "password",
+                        "type": "CONCEALED",
+                        "label": "secret-key",
+                        "value": "sk-456",
+                    },
+                    {
+                        "id": "notesPlain",
+                        "type": "STRING",
+                        "label": "notesPlain",
+                        "value": "some note",
+                    },
                 ],
             },
             "id2": {
@@ -170,7 +180,12 @@ class TestResolveFromOp:
                 "fields": [
                     {"id": "username", "type": "STRING", "label": "username", "value": "admin"},
                     {"id": "password", "type": "CONCEALED", "label": "password", "value": "secret"},
-                    {"id": "otp", "type": "OTP", "label": "one-time password", "value": "otpauth://..."},
+                    {
+                        "id": "otp",
+                        "type": "OTP",
+                        "label": "one-time password",
+                        "value": "otpauth://...",
+                    },
                 ],
             },
         }
@@ -315,9 +330,7 @@ class TestResolveSecrets:
     def test_uses_op_when_token_available(self, isolated_config, monkeypatch):
         monkeypatch.setenv("OP_SERVICE_ACCOUNT_TOKEN", "tok")
 
-        with patch(
-            "brainbox.secrets.resolve_from_op", return_value={"A": "1"}
-        ) as mock_op:
+        with patch("brainbox.secrets.resolve_from_op", return_value={"A": "1"}) as mock_op:
             result = resolve_secrets()
 
         mock_op.assert_called_once_with("tok")

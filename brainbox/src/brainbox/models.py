@@ -54,6 +54,7 @@ class SessionContext(BaseModel):
     session_name: str
     container_name: str
     port: int
+    role: str = "developer"
     state: SessionState = SessionState.PROVISIONING
     created_at: int  # epoch ms
     ttl: int  # seconds

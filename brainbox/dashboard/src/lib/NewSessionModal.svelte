@@ -4,6 +4,7 @@
   let { existingNames, onClose, onCreate } = $props();
 
   let name = $state('');
+  let role = $state('developer');
   let volume = $state('');
   let query = $state('');
   let openTab = $state(false);
@@ -30,7 +31,7 @@
       error = `session "${sanitized}" already seems to exist`;
       return;
     }
-    const data = await createSession({ name: sanitized, volume, query, openTab });
+    const data = await createSession({ name: sanitized, role, volume, query, openTab });
     if (data.success) {
       if (openTab && data.url) window.open(data.url, '_blank');
       onClose();
@@ -67,6 +68,24 @@
           {error}
         {:else}
           use a unique name to create a new session
+        {/if}
+      </p>
+    </div>
+
+    <div class="modal-field">
+      <label for="session-role">role</label>
+      <select id="session-role" bind:value={role}>
+        <option value="developer">developer</option>
+        <option value="researcher">researcher</option>
+        <option value="performer">performer</option>
+      </select>
+      <p class="modal-hint">
+        {#if role === 'developer'}
+          general development — read-only HTTP, full git access
+        {:else if role === 'researcher'}
+          research only — Qdrant read/write, web search, no HTTP writes
+        {:else}
+          infrastructure actions — full network access, cloud CLIs
         {/if}
       </p>
     </div>
@@ -150,6 +169,19 @@
   }
   .modal-field input[type="text"]::placeholder { color: #374151; }
   .modal-field input[type="text"].error { border-color: #ef4444; }
+  .modal-field select {
+    width: 100%;
+    padding: 10px 12px;
+    background: #0a0e1a;
+    border: 1px solid #1e293b;
+    border-radius: 6px;
+    color: #e2e8f0;
+    font-family: inherit;
+    font-size: 14px;
+    cursor: pointer;
+    appearance: auto;
+  }
+  .modal-field select:focus { outline: none; border-color: #3b82f6; }
 
   .modal-hint {
     font-size: 11px;
