@@ -841,8 +841,7 @@ func createEnvExample(profileDir string) error {
 func createSecretsTemplate(profileDir string, opts CreateOptions) error {
 	ui.PrintInfo("Creating .env.secrets.tpl...")
 
-	// Capitalize first letter of profile name for vault naming convention
-	vaultName := "Workspace-" + strings.ToUpper(opts.ProfileName[:1]) + opts.ProfileName[1:]
+	vaultName := "workspace-" + strings.ToLower(opts.ProfileName)
 
 	secretsTplContent := fmt.Sprintf(`# Secrets resolved from 1Password vault "%s" via op inject
 #

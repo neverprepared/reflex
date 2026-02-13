@@ -600,8 +600,7 @@ func updateSecretsTemplate(profileDir, profileName string, dryRun bool) (bool, e
 		return true, nil
 	}
 
-	// Capitalize first letter of profile name for vault naming convention
-	vaultName := "Workspace-" + strings.ToUpper(profileName[:1]) + profileName[1:]
+	vaultName := "workspace-" + strings.ToLower(profileName)
 
 	secretsTplContent := fmt.Sprintf(`# Secrets resolved from 1Password vault "%s" via op inject
 #
