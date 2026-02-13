@@ -101,7 +101,7 @@ jobs:
       - name: Sync formula to homebrew tap
         run: |
           VERSION="${{ steps.version.outputs.VERSION }}"
-          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-agentic.git /tmp/tap
+          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-ink-bunny.git /tmp/tap
           mkdir -p /tmp/tap/Formula
           cp brainbox/Formula/brainbox.rb /tmp/tap/Formula/brainbox.rb
           cd /tmp/tap

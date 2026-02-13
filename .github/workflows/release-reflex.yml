@@ -126,7 +126,7 @@ jobs:
       - name: Sync formula to homebrew tap
         run: |
           VERSION="${{ steps.ver.outputs.VERSION }}"
-          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-agentic.git /tmp/tap
+          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-ink-bunny.git /tmp/tap
           mkdir -p /tmp/tap/Formula
           cp reflex-claude-marketplace/Formula/reflex.rb /tmp/tap/Formula/reflex.rb
           cd /tmp/tap
