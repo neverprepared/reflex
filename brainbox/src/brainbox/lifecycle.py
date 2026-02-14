@@ -436,8 +436,9 @@ async def provision(
             "brainbox.role": resolved_role,
             "brainbox.llm_provider": llm_provider,
             "brainbox.llm_model": llm_model or "",
-            "brainbox.workspace_profile": workspace_profile
-            or os.environ.get("WORKSPACE_PROFILE", ""),
+            "brainbox.workspace_profile": (
+                workspace_profile or os.environ.get("WORKSPACE_PROFILE", "")
+            ).upper(),
         },
         "detach": True,
     }

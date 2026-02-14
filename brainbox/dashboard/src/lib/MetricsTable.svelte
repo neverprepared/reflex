@@ -55,7 +55,7 @@
           <tr>
             <td class="name">{m.session_name || m.name}</td>
             <td class="role-cell"><span class="role-badge" data-role={m.role || 'developer'}>{m.role || 'developer'}</span></td>
-            <td class="profile-cell">{#if m.workspace_profile}<span class="profile-badge">{m.workspace_profile}</span>{:else}<span class="empty-cell">—</span>{/if}</td>
+            <td class="profile-cell">{#if m.workspace_profile}<span class="profile-badge">{m.workspace_profile.toUpperCase()}</span>{:else}<span class="empty-cell">—</span>{/if}</td>
             <td class="llm-cell"><span class="llm-badge" data-visibility={m.llm_provider === 'ollama' ? 'private' : 'public'}>{m.llm_provider === 'ollama' ? 'private' : 'public'}</span></td>
             <td class="num">{m.cpu_percent.toFixed(1)}%</td>
             <td class="num">{m.mem_usage_human} / {m.mem_limit_human}</td>

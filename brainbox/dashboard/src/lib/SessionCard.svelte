@@ -40,7 +40,7 @@
   let displayRole = $derived(session.role || 'developer');
   let displayUrl = $derived(session.url ? session.url.replace('http://', '') : '');
   let llmVisibility = $derived(session.llm_provider === 'ollama' ? 'private' : 'public');
-  let workspaceProfile = $derived(session.workspace_profile || '');
+  let workspaceProfile = $derived((session.workspace_profile || '').toUpperCase());
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
