@@ -5,7 +5,6 @@ on:
     branches: [main]
     paths:
       - "reflex/plugins/**"
-      - "reflex/docker/**"
       - "reflex/VERSION"
   workflow_dispatch:
     inputs:
@@ -52,7 +51,6 @@ jobs:
           VERSION="${{ inputs.version }}"
           tar -czf "reflex-${VERSION}.tar.gz" \
             reflex/plugins/ \
-            reflex/docker/ \
             reflex/VERSION
 
       - name: Create GitHub release
@@ -75,7 +73,6 @@ jobs:
           VERSION="${{ needs.release-please.outputs.version }}"
           tar -czf "reflex-${VERSION}.tar.gz" \
             reflex/plugins/ \
-            reflex/docker/ \
             reflex/VERSION
 
       - name: Upload archive to release
