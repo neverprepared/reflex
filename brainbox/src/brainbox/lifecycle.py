@@ -575,6 +575,13 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
     profile_env = _resolve_profile_env()
     if profile_env:
         try:
+            # Create /run/profile as root (the dir is root-owned in legacy mode;
+            # in hardened mode the tmpfs already exists so mkdir is a no-op)
+            await _run(
+                container.exec_run,
+                ["sh", "-c", "mkdir -p /run/profile && chmod 777 /run/profile"],
+                user="root",
+            )
             await _run(
                 container.exec_run,
                 [
