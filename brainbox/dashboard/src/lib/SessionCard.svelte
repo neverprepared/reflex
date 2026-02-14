@@ -39,11 +39,7 @@
   let displayName = $derived(session.session_name || session.name);
   let displayRole = $derived(session.role || 'developer');
   let displayUrl = $derived(session.url ? session.url.replace('http://', '') : '');
-  let displayProvider = $derived(
-    session.llm_provider === 'ollama'
-      ? `ollama${session.llm_model ? ':' + session.llm_model : ''}`
-      : 'claude'
-  );
+  let llmVisibility = $derived(session.llm_provider === 'ollama' ? 'private' : 'public');
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -58,7 +54,7 @@
     <span class="status-dot" class:active={session.active}></span>
     <a href={'#'} class="session-name" onclick={(e) => { e.preventDefault(); onInfo(session.name); }}>{displayName}</a>
     <span class="role-badge" data-role={displayRole}>{displayRole}</span>
-    <span class="provider-badge" data-provider={session.llm_provider || 'claude'}>{displayProvider}</span>
+    <span class="provider-badge" data-visibility={llmVisibility}>{llmVisibility}</span>
   </div>
 
   <div class="card-url">
@@ -149,8 +145,8 @@
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
     flex-shrink: 0;
   }
-  .provider-badge[data-provider="claude"] { background: rgba(236, 72, 153, 0.15); color: #ec4899; }
-  .provider-badge[data-provider="ollama"] { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+  .provider-badge[data-visibility="public"] { background: rgba(236, 72, 153, 0.15); color: #ec4899; }
+  .provider-badge[data-visibility="private"] { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
 
   .card-url { margin-bottom: 6px; }
   .card-url a {
