@@ -15,6 +15,8 @@ from typing import Any
 import docker
 from docker.errors import NotFound
 
+from pathlib import Path
+
 from .config import settings
 from .cosign import CosignVerificationError, verify_image, verify_image_keyless
 from .hardening import get_hardening_kwargs, get_legacy_kwargs
@@ -48,6 +50,62 @@ async def _run(fn: Any, *args: Any, **kwargs: Any) -> Any:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _resolve_cloud_mounts() -> dict[str, dict[str, str]]:
+    """Resolve cloud CLI credential directories to Docker volume mounts.
+
+    Returns a dict of host_path → {"bind": container_path, "mode": "ro"}
+    for each cloud provider whose config dir exists on the host.
+    """
+    mounts: dict[str, dict[str, str]] = {}
+    home = Path.home()
+
+    if settings.cloud.mount_aws:
+        aws_dir = None
+        for env_var in ("AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"):
+            val = os.environ.get(env_var)
+            if val:
+                candidate = Path(val).parent
+                if candidate.is_dir():
+                    aws_dir = candidate
+                    break
+        if aws_dir is None:
+            candidate = home / ".aws"
+            if candidate.is_dir():
+                aws_dir = candidate
+        if aws_dir is not None:
+            mounts[str(aws_dir)] = {"bind": "/home/developer/.aws", "mode": "ro"}
+
+    if settings.cloud.mount_azure:
+        azure_dir = None
+        val = os.environ.get("AZURE_CONFIG_DIR")
+        if val:
+            candidate = Path(val)
+            if candidate.is_dir():
+                azure_dir = candidate
+        if azure_dir is None:
+            candidate = home / ".azure"
+            if candidate.is_dir():
+                azure_dir = candidate
+        if azure_dir is not None:
+            mounts[str(azure_dir)] = {"bind": "/home/developer/.azure", "mode": "ro"}
+
+    if settings.cloud.mount_kube:
+        kube_dir = None
+        val = os.environ.get("KUBECONFIG")
+        if val:
+            candidate = Path(val).parent
+            if candidate.is_dir():
+                kube_dir = candidate
+        if kube_dir is None:
+            candidate = home / ".kube"
+            if candidate.is_dir():
+                kube_dir = candidate
+        if kube_dir is not None:
+            mounts[str(kube_dir)] = {"bind": "/home/developer/.kube", "mode": "ro"}
+
+    return mounts
 
 
 def _find_available_port(start: int = 7681) -> int:
@@ -247,6 +305,18 @@ async def provision(
             mode = parts[2] if len(parts) > 2 else "rw"
             volumes[host_path] = {"bind": container_path, "mode": mode}
 
+    # Cloud CLI credential mounts (read-only)
+    cloud_mounts = _resolve_cloud_mounts()
+    volumes.update(cloud_mounts)
+    for mount in cloud_mounts.values():
+        bind = mount["bind"]
+        if bind.endswith("/.aws"):
+            ctx.cloud_mounts.add("aws")
+        elif bind.endswith("/.azure"):
+            ctx.cloud_mounts.add("azure")
+        elif bind.endswith("/.kube"):
+            ctx.cloud_mounts.add("kube")
+
     kwargs["volumes"] = volumes
 
     # Hardening or legacy
@@ -409,6 +479,35 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
             )
         except Exception as exc:
             slog.warning("container.ttyd_start_failed", metadata={"reason": str(exc)})
+
+    # Cloud CLI env vars — write to /home/developer/.cloud_env, sourced by .bashrc
+    cloud_env_lines: list[str] = []
+    if "aws" in ctx.cloud_mounts:
+        cloud_env_lines.append("export AWS_CONFIG_FILE=/home/developer/.aws/config")
+        cloud_env_lines.append(
+            "export AWS_SHARED_CREDENTIALS_FILE=/home/developer/.aws/credentials"
+        )
+    if "azure" in ctx.cloud_mounts:
+        cloud_env_lines.append("export AZURE_CONFIG_DIR=/home/developer/.azure")
+    if "kube" in ctx.cloud_mounts:
+        cloud_env_lines.append("export KUBECONFIG=/home/developer/.kube/config")
+
+    if cloud_env_lines:
+        cloud_env_body = "\n".join(cloud_env_lines)
+        try:
+            await _run(
+                container.exec_run,
+                [
+                    "sh",
+                    "-c",
+                    f"echo '{_shell_escape(cloud_env_body)}' > /home/developer/.cloud_env"
+                    " && chmod 644 /home/developer/.cloud_env"
+                    " && grep -q cloud_env /home/developer/.bashrc 2>/dev/null"
+                    " || echo '[ -f ~/.cloud_env ] && . ~/.cloud_env' >> /home/developer/.bashrc",
+                ],
+            )
+        except Exception as exc:
+            slog.warning("container.cloud_env_write_failed", metadata={"reason": str(exc)})
 
     ctx.state = SessionState.RUNNING
     slog.info("container.started", metadata={"port": ctx.port, "hardened": ctx.hardened})

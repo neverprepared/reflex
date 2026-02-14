@@ -54,6 +54,12 @@ class ArtifactSettings(BaseSettings):
     region: str = "us-east-1"
 
 
+class CloudSettings(BaseSettings):
+    mount_aws: bool = True
+    mount_azure: bool = True
+    mount_kube: bool = True
+
+
 class OllamaSettings(BaseSettings):
     host: str = "http://host.docker.internal:11434"
     model: str = "qwen3-coder"
@@ -84,6 +90,7 @@ class Settings(BaseSettings):
     hardening: HardeningSettings = Field(default_factory=HardeningSettings)
     cosign: CosignSettings = Field(default_factory=CosignSettings)
     artifact: ArtifactSettings = Field(default_factory=ArtifactSettings)
+    cloud: CloudSettings = Field(default_factory=CloudSettings)
     hub: HubSettings = Field(default_factory=HubSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
 
