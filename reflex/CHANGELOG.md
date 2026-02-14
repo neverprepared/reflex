@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0](https://github.com/neverprepared/ink-bunny/compare/reflex/v1.7.3...reflex-v1.8.0) (2026-02-14)
+
+
+### Features
+
+* add /reflex:container create with auto-detect profile ([59cfdb2](https://github.com/neverprepared/ink-bunny/commit/59cfdb2b3f34e925b63520fbe7d0873b938816a8))
+
+
+### Code Refactoring
+
+* rename reflex-claude-marketplace/ to reflex/ ([8f72843](https://github.com/neverprepared/ink-bunny/commit/8f728434e1d839dfd2f6a5611b47da7091ac974a))
+
 ## [1.7.2](https://github.com/mindmorass/reflex/compare/v1.7.1...v1.7.2) (2026-02-06)
 
 
