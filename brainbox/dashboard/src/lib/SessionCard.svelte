@@ -40,6 +40,7 @@
   let displayRole = $derived(session.role || 'developer');
   let displayUrl = $derived(session.url ? session.url.replace('http://', '') : '');
   let llmVisibility = $derived(session.llm_provider === 'ollama' ? 'private' : 'public');
+  let workspaceProfile = $derived(session.workspace_profile || '');
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -55,6 +56,9 @@
     <a href={'#'} class="session-name" onclick={(e) => { e.preventDefault(); onInfo(session.name); }}>{displayName}</a>
     <span class="role-badge" data-role={displayRole}>{displayRole}</span>
     <span class="provider-badge" data-visibility={llmVisibility}>{llmVisibility}</span>
+    {#if workspaceProfile}
+      <span class="profile-badge">{workspaceProfile}</span>
+    {/if}
   </div>
 
   <div class="card-url">
@@ -147,6 +151,19 @@
   }
   .provider-badge[data-visibility="public"] { background: rgba(236, 72, 153, 0.15); color: #ec4899; }
   .provider-badge[data-visibility="private"] { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+
+  .profile-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+    font-weight: 500;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    flex-shrink: 0;
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+  }
 
   .card-url { margin-bottom: 6px; }
   .card-url a {

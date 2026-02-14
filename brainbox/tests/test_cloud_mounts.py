@@ -229,6 +229,30 @@ class TestProvisionCloudMounts:
         assert "azure" in ctx.cloud_mounts
 
     @pytest.mark.asyncio
+    async def test_provision_sets_workspace_profile_label(self):
+        mock_client = MagicMock()
+        mock_image = MagicMock()
+        mock_image.attrs = {"RepoDigests": []}
+        mock_client.images.get.return_value = mock_image
+        mock_client.containers.get.side_effect = NotFound("not found")
+        mock_client.containers.create.return_value = MagicMock()
+
+        with (
+            patch("brainbox.lifecycle._docker", return_value=mock_client),
+            patch("brainbox.lifecycle._find_available_port", return_value=7681),
+            patch("brainbox.lifecycle._verify_cosign", new_callable=AsyncMock),
+            patch("brainbox.lifecycle._resolve_cloud_mounts", return_value={}),
+            patch.dict("os.environ", {"WORKSPACE_PROFILE": "personal"}, clear=False),
+        ):
+            from brainbox.lifecycle import provision
+
+            await provision(session_name="label-wp-test")
+
+        create_call = mock_client.containers.create.call_args
+        labels = create_call[1]["labels"]
+        assert labels["brainbox.workspace_profile"] == "personal"
+
+    @pytest.mark.asyncio
     async def test_provision_no_cloud_when_dirs_missing(self):
         mock_client = MagicMock()
         mock_image = MagicMock()
@@ -291,6 +315,7 @@ class TestStartCloudEnvVars:
         with (
             patch("brainbox.lifecycle._docker", return_value=mock_client),
             patch("brainbox.lifecycle._sessions", sessions),
+            patch.dict("os.environ", {"WORKSPACE_PROFILE": "testing"}, clear=False),
         ):
             from brainbox.lifecycle import start
 
@@ -305,12 +330,13 @@ class TestStartCloudEnvVars:
         ]
         assert len(cloud_env_calls) >= 1
         cmd_str = str(cloud_env_calls[0])
+        assert "WORKSPACE_PROFILE=testing" in cmd_str
         assert "AWS_CONFIG_FILE" in cmd_str
         assert "AZURE_CONFIG_DIR" in cmd_str
         assert "KUBECONFIG" in cmd_str
 
     @pytest.mark.asyncio
-    async def test_skips_cloud_env_when_no_mounts(self, ctx_without_cloud):
+    async def test_writes_workspace_profile_even_without_cloud_mounts(self, ctx_without_cloud):
         mock_client = MagicMock()
         mock_container = MagicMock()
         mock_container.exec_run.return_value = (0, b"")
@@ -320,6 +346,35 @@ class TestStartCloudEnvVars:
         with (
             patch("brainbox.lifecycle._docker", return_value=mock_client),
             patch("brainbox.lifecycle._sessions", sessions),
+            patch.dict("os.environ", {"WORKSPACE_PROFILE": "work"}, clear=False),
+        ):
+            from brainbox.lifecycle import start
+
+            await start(ctx_without_cloud)
+
+        calls = mock_container.exec_run.call_args_list
+        cloud_env_calls = [
+            c
+            for c in calls
+            if any(".cloud_env" in str(arg) for arg in c.args + tuple(c.kwargs.values()))
+        ]
+        assert len(cloud_env_calls) >= 1
+        cmd_str = str(cloud_env_calls[0])
+        assert "WORKSPACE_PROFILE=work" in cmd_str
+
+    @pytest.mark.asyncio
+    async def test_skips_cloud_env_when_no_mounts_and_no_profile(self, ctx_without_cloud):
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.exec_run.return_value = (0, b"")
+        mock_client.containers.get.return_value = mock_container
+
+        env_overrides = {"WORKSPACE_PROFILE": ""}
+        sessions = {ctx_without_cloud.session_name: ctx_without_cloud}
+        with (
+            patch("brainbox.lifecycle._docker", return_value=mock_client),
+            patch("brainbox.lifecycle._sessions", sessions),
+            patch.dict("os.environ", env_overrides, clear=False),
         ):
             from brainbox.lifecycle import start
 

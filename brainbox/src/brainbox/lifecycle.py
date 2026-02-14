@@ -287,6 +287,7 @@ async def provision(
             "brainbox.role": resolved_role,
             "brainbox.llm_provider": llm_provider,
             "brainbox.llm_model": llm_model or "",
+            "brainbox.workspace_profile": os.environ.get("WORKSPACE_PROFILE", ""),
         },
         "detach": True,
     }
@@ -480,8 +481,11 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
         except Exception as exc:
             slog.warning("container.ttyd_start_failed", metadata={"reason": str(exc)})
 
-    # Cloud CLI env vars — write to /home/developer/.cloud_env, sourced by .bashrc
+    # Workspace identity + cloud CLI env vars — write to /home/developer/.cloud_env
     cloud_env_lines: list[str] = []
+    workspace_profile = os.environ.get("WORKSPACE_PROFILE", "")
+    if workspace_profile:
+        cloud_env_lines.append(f"export WORKSPACE_PROFILE={workspace_profile}")
     if "aws" in ctx.cloud_mounts:
         cloud_env_lines.append("export AWS_CONFIG_FILE=/home/developer/.aws/config")
         cloud_env_lines.append(
@@ -502,8 +506,8 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
                     "-c",
                     f"echo '{_shell_escape(cloud_env_body)}' > /home/developer/.cloud_env"
                     " && chmod 644 /home/developer/.cloud_env"
-                    " && grep -q cloud_env /home/developer/.bashrc 2>/dev/null"
-                    " || echo '[ -f ~/.cloud_env ] && . ~/.cloud_env' >> /home/developer/.bashrc",
+                    " && grep -q cloud_env /home/developer/.profile 2>/dev/null"
+                    " || echo '[ -f ~/.cloud_env ] && . ~/.cloud_env' >> /home/developer/.profile",
                 ],
             )
         except Exception as exc:

@@ -43,6 +43,7 @@
         <tr>
           <th>Container</th>
           <th>Role</th>
+          <th>Profile</th>
           <th>LLM</th>
           <th>CPU</th>
           <th>Memory</th>
@@ -54,6 +55,7 @@
           <tr>
             <td class="name">{m.session_name || m.name}</td>
             <td class="role-cell"><span class="role-badge" data-role={m.role || 'developer'}>{m.role || 'developer'}</span></td>
+            <td class="profile-cell">{#if m.workspace_profile}<span class="profile-badge">{m.workspace_profile}</span>{:else}<span class="empty-cell">—</span>{/if}</td>
             <td class="llm-cell"><span class="llm-badge" data-visibility={m.llm_provider === 'ollama' ? 'private' : 'public'}>{m.llm_provider === 'ollama' ? 'private' : 'public'}</span></td>
             <td class="num">{m.cpu_percent.toFixed(1)}%</td>
             <td class="num">{m.mem_usage_human} / {m.mem_limit_human}</td>
@@ -135,4 +137,17 @@
   }
   .llm-badge[data-visibility="public"] { background: rgba(236, 72, 153, 0.15); color: #ec4899; }
   .llm-badge[data-visibility="private"] { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
+  .profile-cell { padding: 10px 12px; }
+  .profile-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-transform: lowercase;
+    letter-spacing: 0.02em;
+    font-weight: 500;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    background: rgba(245, 158, 11, 0.15);
+    color: #f59e0b;
+  }
+  .empty-cell { color: #374151; }
 </style>

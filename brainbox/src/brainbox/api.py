@@ -219,6 +219,7 @@ def _get_sessions_info() -> list[dict[str, Any]]:
             labels = c.labels or {}
             llm_provider = labels.get("brainbox.llm_provider", "claude")
             llm_model = labels.get("brainbox.llm_model", "")
+            workspace_profile = labels.get("brainbox.workspace_profile", "")
 
             sessions.append(
                 {
@@ -231,6 +232,7 @@ def _get_sessions_info() -> list[dict[str, Any]]:
                     "active": is_running,
                     "llm_provider": llm_provider,
                     "llm_model": llm_model,
+                    "workspace_profile": workspace_profile,
                 }
             )
     except Exception:
@@ -434,6 +436,7 @@ def _get_container_metrics() -> list[dict[str, Any]]:
                         "session_name": _extract_session_name(c.name),
                         "role": _extract_role(c),
                         "llm_provider": labels.get("brainbox.llm_provider", "claude"),
+                        "workspace_profile": labels.get("brainbox.workspace_profile", ""),
                         "cpu_percent": round(cpu_pct, 2),
                         "mem_usage": mem_usage,
                         "mem_usage_human": _human_bytes(mem_usage),
