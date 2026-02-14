@@ -1,6 +1,6 @@
 # Orchestration Layer
 
-The orchestration hub serves two roles: **task dispatch** (routing work to agents) and **communication bus** (routing all agent-to-agent messages). There is no separate message broker.
+The orchestration hub serves two roles: **task dispatch** (routing work to agents) and **communication bus** (routing all agent-to-agent messages). NATS provides the message transport between the orchestrator and agent daemons, with circuit breaker fallback to in-memory routing when NATS is unavailable.
 
 ## Hub Overview
 
@@ -19,12 +19,15 @@ graph TD
         MessageRouter -->|evaluate| PolicyEngine
     end
 
+    NATS[(NATS)]
     Guard[Security Guardrails]
     Observe[Observability]
 
     User -->|submit task| TaskRouter
     PolicyEngine -->|approve / deny| Guard
     AgentRegistry -->|resolve agent image| Guard
+    MessageRouter -->|publish| NATS
+    MessageRouter -.->|"fallback"| InMemory[In-Memory Queue]
     MessageRouter --> Observe
 ```
 
@@ -35,7 +38,7 @@ graph TD
 | **Task Router** | Receives work requests from users, resolves which agent handles them |
 | **Agent Registry** | Catalog of available agents, their capabilities, and container images |
 | **Policy Engine** | Evaluates authorization for both task dispatch and agent-to-agent messages. Delegates to [[arch-security-tooling#OPA|OPA]] when enabled. |
-| **Message Router** | Routes all inter-agent communication — request/reply, events, broadcasts |
+| **Message Router** | Routes all inter-agent communication — request/reply, events, broadcasts. Publishes to NATS subjects after policy evaluation, falls back to in-memory routing when NATS is unavailable |
 
 ## Task Dispatch Flow
 
@@ -53,6 +56,50 @@ graph TD
 5. Message is logged to [[arch-observability|Observability]] and routed to the recipient
 
 See [[arch-agent-communication]] for the full communication model, delegation patterns, and guardrails.
+
+## NATS Message Bus
+
+NATS replaces the in-memory `_pending` dict as the message transport between the orchestrator and agent daemons. The orchestrator remains the single enforcement point — NATS is a delivery mechanism, not an autonomous message bus.
+
+```mermaid
+graph LR
+    Orch((Orchestrator<br/>Message Router))
+
+    NATS[(NATS)]
+
+    subgraph Agents["Agent Containers"]
+        D1[Daemon A<br/>subscribes to<br/>agent.a.inbox]
+        D2[Daemon B<br/>subscribes to<br/>agent.b.inbox]
+        D3[Daemon N<br/>subscribes to<br/>agent.n.inbox]
+    end
+
+    Orch -->|"publish after policy check"| NATS
+    NATS --> D1 & D2 & D3
+    D1 & D2 & D3 -->|"results via HTTP API"| Orch
+
+    Orch -.->|"fallback if NATS down"| InMem[In-Memory Queue]
+    InMem -.-> D1 & D2 & D3
+```
+
+| Property | Detail |
+|---|---|
+| **Subject naming** | `agent.<name>.inbox` for directed messages, `agent.broadcast` for broadcasts |
+| **Publish flow** | Orchestrator evaluates policy → publishes to NATS subject → daemon receives |
+| **Agent outbound** | Agents never publish directly to NATS — all outbound goes through orchestrator HTTP API first (preserves star topology for policy enforcement) |
+| **Audit logging** | Orchestrator taps the NATS stream for audit logging before publish |
+| **Policy evaluation** | Pre-publish gate — messages only reach NATS after passing OPA/built-in policy checks |
+
+### Circuit Breaker Fallback
+
+The orchestrator probes NATS health on startup and periodically. If NATS becomes unreachable, message routing degrades gracefully to in-memory delivery.
+
+| State | Behavior |
+|---|---|
+| **NATS healthy** | Normal operation — messages published to NATS subjects |
+| **NATS unreachable** | Circuit breaker opens — fall back to in-memory dict routing (Phase 1 behavior) |
+| **NATS recovers** | Drain in-memory queue to NATS, resume normal routing |
+
+Dashboard/SSE shows the current transport mode (NATS / in-memory fallback) so the operator has visibility into degraded state.
 
 ## State Persistence
 
@@ -99,24 +146,52 @@ Each container runs a lightweight agent daemon that connects it to the orchestra
 ```mermaid
 graph TD
     subgraph Container["Agent Container"]
-        Daemon[Agent Daemon<br/>poll / execute / report]
+        Daemon[Agent Daemon<br/>subscribe / execute / publish]
         Claude[Claude Code CLI<br/>--model flag]
         Daemon -->|"invoke"| Claude
     end
 
+    NATS[(NATS)]
+    MinIO[(MinIO<br/>Artifact Store)]
     Orch((Orchestrator<br/>Hub API))
-    Daemon <-->|"poll tasks / post results"| Orch
+
+    NATS -->|"receive task"| Daemon
+    Daemon -->|"post results"| Orch
+    Daemon -->|"upload artifacts"| MinIO
 ```
 
 ### Daemon Responsibilities
 
 | Responsibility | Detail |
 |---|---|
-| **Task polling** | Poll `/api/hub/messages` for assigned work using the container's token |
+| **Message subscription** | Subscribe to NATS subject `agent.<name>.inbox` for assigned work (falls back to polling `/api/hub/messages` when NATS unavailable) |
 | **Task execution** | Invoke Claude Code CLI with the task prompt, capture output |
-| **Result reporting** | Post results back to the hub via `/api/hub/messages` with `task.completed` event |
+| **Artifact publishing** | Upload output (markdown, code, logs) to MinIO bucket `artifacts/<agent-name>/<task-id>/` |
+| **Result reporting** | Post `task.completed` to the hub via `/api/hub/messages` with artifact S3 URI in payload |
 | **Health signaling** | Emit heartbeat events so the orchestrator knows the daemon is alive |
-| **Graceful shutdown** | On SIGTERM, finish current task, report partial results, exit cleanly |
+| **Graceful shutdown** | On SIGTERM, finish current task, post partial results, unsubscribe from NATS, exit cleanly |
+
+### Daemon Lifecycle
+
+The daemon runs as a supervised process alongside ttyd (systemd unit or supervisor).
+
+1. **Boot** — authenticates with hub using container token, subscribes to NATS subject `agent.<name>.inbox`
+2. **Ready** — enters message loop, waiting for task assignments
+3. **Execute** — receive message → parse task → invoke Claude CLI → capture output
+4. **Publish** — upload artifacts to MinIO bucket → post `task.completed` with S3 URI to hub
+5. **Shutdown** — on SIGTERM, finish current task, post partial results, unsubscribe, exit
+
+```mermaid
+stateDiagram-v2
+    [*] --> Boot: process start
+    Boot --> Ready: authenticated + subscribed
+    Ready --> Execute: task received
+    Execute --> Publish: CLI complete
+    Publish --> Ready: results posted
+    Execute --> Shutdown: SIGTERM
+    Ready --> Shutdown: SIGTERM
+    Shutdown --> [*]: clean exit
+```
 
 ### LLM Provider Routing
 

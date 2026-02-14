@@ -68,17 +68,21 @@ graph TD
         Orch((Orchestrator))
         SPIRE[SPIRE Server]
         OPA[OPA]
+        NATS[(NATS)]
     end
 
     subgraph DataZone["Data Plane Zone"]
         VectorDB[(Vector DB)]
-        ArtifactStore[(Artifact Store)]
+        MinIO[(MinIO)]
         Observability[Observability Stack]
     end
 
-    Agent1 & Agent2 & AgentN -->|"allowed: orchestrator only"| Orch
+    Agent1 & Agent2 & AgentN -->|"allowed: orchestrator, NATS, MinIO"| Orch
     Orch --> SPIRE & OPA
-    Orch --> VectorDB & ArtifactStore & Observability
+    Orch -->|"publish"| NATS
+    NATS -->|"deliver"| Agent1 & Agent2 & AgentN
+    Agent1 & Agent2 & AgentN -->|"upload artifacts"| MinIO
+    Orch --> VectorDB & MinIO & Observability
 
     Agent1 -.->|"blocked"| Agent2
     Agent1 -.->|"blocked"| SPIRE
@@ -87,16 +91,19 @@ graph TD
 
 | Zone | Contains | Inbound From | Outbound To |
 |---|---|---|---|
-| **Agent Sandbox** | All agent containers | Orchestrator (task dispatch, message routing) | Orchestrator only (+ allowlisted external APIs) |
-| **Control Plane** | Orchestrator, SPIRE Server, OPA | Agent zone (requests), Data zone (responses) | Data zone (store/query), Agent zone (dispatch) |
-| **Data Plane** | Vector DB, Artifact Store, Observability | Control plane only (via shared state proxy) | Control plane (query responses) |
+| **Agent Sandbox** | All agent containers | Orchestrator (task dispatch), NATS (message delivery) | Orchestrator (results), NATS (subscribe only), MinIO (artifact upload), allowlisted external APIs |
+| **Control Plane** | Orchestrator, SPIRE Server, OPA, NATS | Agent zone (requests), Data zone (responses) | Data zone (store/query), Agent zone (dispatch), NATS (publish) |
+| **Data Plane** | Vector DB, MinIO, Observability | Control plane (via shared state proxy), Agent zone (MinIO artifact uploads via proxy) | Control plane (query responses), External (MinIO webhook notifications → n8n/Jenkins) |
 
 ### Agent-to-Agent Isolation
 
 | Rule | Detail |
 |---|---|
 | **Default-deny NetworkPolicy** | All agent containers start with deny-all ingress and egress |
-| **Egress allowlist** | Only orchestrator port and explicitly approved external destinations |
+| **Egress allowlist** | Orchestrator port, NATS (subscribe only), MinIO (artifact upload), and explicitly approved external destinations |
+| **NATS access** | Agents can subscribe to their inbox subject via daemon — cannot access NATS admin endpoints or publish directly |
+| **MinIO access** | Agents can upload artifacts via daemon — cannot access MinIO admin console or other agents' buckets |
+| **Webhook egress** | MinIO → external pipeline endpoints (n8n/Jenkins) allowed from Data Plane zone only |
 | **No CAP_NET_RAW** | Dropped in mandatory hardening — prevents ARP spoofing on shared bridge networks |
 | **No CAP_NET_ADMIN** | Dropped in mandatory hardening — prevents network configuration manipulation |
 

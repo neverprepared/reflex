@@ -14,11 +14,11 @@ graph TD
 
     subgraph Persistence["Shared State"]
         VectorDB[(Vector DB<br/>Semantic Retrieval)]
-        ArtifactStore[(Artifact Store<br/>Durable Outputs)]
+        MinIO[(MinIO<br/>S3-Compatible<br/>Artifact Store)]
     end
 
     Agent1 & Agent2 & Agent3 -->|"request + SVID"| Proxy
-    Proxy -->|"validated + scoped"| VectorDB & ArtifactStore
+    Proxy -->|"validated + scoped"| VectorDB & MinIO
     Proxy -.->|"unauthorized → reject"| Reject([Block])
 
     Observe[Observability]
@@ -34,7 +34,19 @@ Agents never access stores directly. All reads and writes go through an authenti
 | Store | Purpose | Examples |
 |---|---|---|
 | **Vector DB** | Semantic search and retrieval across agent workloads | Embeddings, conversation history, knowledge base |
-| **Artifact Store** | Durable, addressable outputs from agent tasks | Generated files, reports, build artifacts, datasets |
+| **MinIO (S3-Compatible)** | Durable, addressable outputs from agent tasks | Generated files, reports, build artifacts, datasets |
+
+### MinIO Artifact Store
+
+MinIO provides the concrete S3-compatible artifact store. Self-hosted, already running in the home lab.
+
+| Property | Detail |
+|---|---|
+| **Access protocol** | S3 API via boto3/minio-py through the shared state proxy |
+| **Bucket structure** | `artifacts/<agent-name>/<task-id>/<filename>` |
+| **Access control** | MinIO bucket policies scoped per-agent (enforced via proxy) |
+| **Retention** | Configurable per-bucket lifecycle rules |
+| **Agent upload flow** | Daemon uploads via S3 API after task execution → posts `task.completed` with S3 URI to hub |
 
 ## Access Control
 
@@ -62,7 +74,7 @@ graph LR
 | **Cross-namespace reads** | Require explicit OPA policy grant based on SVID identity |
 | **Shared namespace** | Opt-in space for cross-agent data — requires policy approval |
 | **Vector DB tenant isolation** | Collections scoped per namespace — queries cannot cross boundaries without policy |
-| **Artifact Store path isolation** | Artifacts stored under `/<namespace>/<task-id>/` — proxy enforces path boundaries |
+| **MinIO path isolation** | Artifacts stored under `artifacts/<namespace>/<task-id>/` — proxy enforces S3 prefix boundaries |
 
 ### Write Integrity
 
@@ -73,6 +85,36 @@ Every write includes a cryptographic signature for tamper detection.
 | **Signed writes** | Each write includes a signature over the content hash using the agent's SVID |
 | **Attribution** | Every stored object carries: originating SVID, task ID, timestamp, content hash |
 | **Verified reads** | Consuming agents verify the signature before processing — unsigned or invalid artifacts are rejected |
+
+## Pipeline Integration
+
+MinIO native bucket notifications deliver artifacts to downstream pipelines without custom webhook code.
+
+### Webhook Push via Bucket Notifications
+
+```mermaid
+graph LR
+    Agent[Agent Daemon] -->|"upload artifact"| MinIO[(MinIO)]
+    MinIO -->|"s3:ObjectCreated:*"| Notify[Bucket Notification]
+    Notify -->|"POST webhook"| N8N[n8n]
+    Notify -->|"POST webhook"| Jenkins[Jenkins]
+```
+
+| Property | Detail |
+|---|---|
+| **Trigger** | MinIO fires on `s3:ObjectCreated:*` events |
+| **Delivery** | POST to configured webhook endpoints (n8n, Jenkins, or any HTTP target) |
+| **Payload** | Bucket, key, size, content-type — standard S3 notification format |
+| **Multiple targets** | n8n AND Jenkins (or others) can receive the same notification simultaneously |
+| **No custom code** | MinIO handles delivery and retry natively — no webhook infrastructure to build |
+
+### Delivery Guarantees
+
+| Guarantee | Detail |
+|---|---|
+| **Retry** | MinIO retries failed webhook deliveries (configurable retry count and interval) |
+| **Idempotency** | Downstream consumers must be idempotent — MinIO may retry on timeout |
+| **Queue on failure** | If all targets are down, notifications queue in MinIO until recovery |
 
 ## Rules
 

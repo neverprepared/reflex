@@ -18,10 +18,10 @@ Three design maturity phases. Each phase is a self-contained architecture — no
 | **Identity** | Orchestrator-issued brainbox tokens (validated against internal registry) | Full SPIRE, SVID type policy (x509/JWT), aggressive TTLs | Full PKI (HSM root CA, intermediate CA), deny-list revocation, replay protection |
 | **Secrets** | 1Password + direnv, file-based tmpfs delivery | Envelope encryption (KEK/DEK), OIDC federation for CI | Full envelope encryption, break-glass procedure |
 | **Orchestrator** | Single process: task dispatch, agent registry, built-in policy, message routing, identity issuer | State persistence, degraded mode | Resilience (watchdog, safe mode, dead-man switch) |
-| **Communication** | Star topology, request/reply + events, internal delegation (merged into Orchestration) | Separate page: external delegation, broadcast | Full delegation model, scope-based policy |
+| **Communication** | Star topology, request/reply + events, internal delegation, in-memory message router (merged into Orchestration) | NATS message bus (circuit breaker fallback to in-memory), external delegation, broadcast | JetStream persistence, message replay, full delegation model, scope-based policy |
 | **Network** | Docker bridge, basic egress allowlist (merged into Container Lifecycle) | Network zones (3-tier), default-deny between agents | Full zone isolation, SPIRE server isolation, Envoy bypass prevention |
 | **Observability** | Structured JSON logs | Add distributed traces, data classification, redaction pipeline | Full redaction, hash-chained audit trail, WORM storage |
-| **Shared State** | Vector DB + Artifact Store, direct access | Authenticated proxy, namespace isolation, signed writes | Full namespace isolation, quarantine, per-namespace encryption |
+| **Shared State** | Vector DB + Artifact Store, direct access | MinIO artifact store, authenticated proxy, namespace isolation, signed writes, bucket notifications → webhook push (n8n/Jenkins) | Per-namespace encryption, quarantine, integrity background scans |
 | **Security Tooling** | None — orchestrator built-in policy only | OPA + Kyverno | Full suite: Envoy, OPA, Cilium, Falco, Kyverno (all flaggable) |
 | **Incident Response** | Container recycle is the response | IR runbooks, forensic capture before recycle | Full IR lifecycle, escalation matrix, known-good baseline |
 | **Threat Model** | Container isolation is the primary control | Attack path analysis, risk quadrant | Full threat model with before/after risk assessment |

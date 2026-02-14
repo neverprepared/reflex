@@ -2,7 +2,7 @@
 
 **New in PHASE_2.** Breaks out from PHASE_1's [[arch-orchestration|Orchestration]] page into its own page, adding external delegation (orchestrator provisions new containers for sub-tasks) and broadcast messaging.
 
-All inter-agent communication flows through the orchestrator. There is no separate message broker and no direct agent-to-agent connections.
+All inter-agent communication flows through the orchestrator. NATS provides the message transport layer, but the orchestrator remains the single enforcement point — agents never publish directly to NATS. There are no direct agent-to-agent connections.
 
 ## Star Topology
 
@@ -36,6 +36,33 @@ Every message passes through the orchestrator, which validates identity (SVID), 
 | **Request / Reply** | Agent sends request, orchestrator routes it, recipient replies | Agent A requests data from Agent B |
 | **Event** | Agent emits an event, orchestrator routes to subscribers | Agent A completed a task, notify interested agents |
 | **Broadcast** | Orchestrator sends to all agents matching a filter | System-wide policy change notification |
+
+## Message Transport: NATS
+
+The star topology's enforcement model is unchanged — the orchestrator evaluates every message before delivery. NATS replaces in-memory routing as the transport mechanism between the orchestrator and agent daemons.
+
+```mermaid
+graph TD
+    Agent1[Agent A] -->|"outbound message"| Orch
+    Agent2[Agent B] -->|"outbound message"| Orch
+
+    Orch((Orchestrator)) -->|"1. validate identity"| Policy[Policy Engine]
+    Policy -->|"2. approve"| Orch
+    Orch -->|"3. publish"| NATS[(NATS)]
+
+    NATS -->|"deliver to agent.a.inbox"| D1[Daemon A]
+    NATS -->|"deliver to agent.b.inbox"| D2[Daemon B]
+    NATS -->|"deliver to agent.broadcast"| D1 & D2
+```
+
+| Property | Detail |
+|---|---|
+| **Subject naming** | `agent.<name>.inbox` for directed messages, `agent.broadcast` for broadcasts |
+| **Enforcement** | Messages are published to NATS subjects only after orchestrator policy evaluation — NATS is a delivery mechanism, not an autonomous bus |
+| **Agent outbound** | Agents send all outbound messages to the orchestrator HTTP API — they never publish directly to NATS |
+| **Fallback** | If NATS is unavailable, the orchestrator falls back to in-memory dict routing (see [[arch-orchestration#Circuit Breaker Fallback]]) |
+
+This preserves the star topology's key properties: single enforcement point, full visibility, and no agent discovery needed. NATS changes how messages are delivered, not how they are authorized.
 
 ## Delegation
 
@@ -75,6 +102,7 @@ sequenceDiagram
     participant Policy as Policy Engine
     participant SPIRE as SPIRE
     participant AgentB as Delegated Agent B
+    participant MinIO as MinIO
 
     AgentA->>Orch: delegation request (task, required capabilities)
     Orch->>Policy: can Agent A delegate this task?
@@ -82,8 +110,9 @@ sequenceDiagram
     Orch->>SPIRE: register new workload for Agent B
     SPIRE-->>Orch: registration entry created
     Orch->>AgentB: provision container (own SVID, own secrets, own limits)
-    AgentB->>Orch: results
-    Orch->>AgentA: forward results
+    AgentB->>MinIO: upload artifacts to artifacts/<agent-b>/<task-id>/
+    AgentB->>Orch: results (includes artifact S3 URI)
+    Orch->>AgentA: forward results (with artifact S3 URI)
     Orch->>AgentB: recycle
 ```
 
@@ -119,7 +148,7 @@ This means all four message patterns (request/reply, event, broadcast, delegatio
 
 ## Communication Guardrails
 
-Enforced at the orchestrator on every message.
+Enforced at the orchestrator on every message, **before** publication to NATS. NATS is the delivery layer — all identity, policy, schema, and logging checks happen at the orchestrator before a message reaches the transport.
 
 | Guardrail | How |
 |---|---|
@@ -128,3 +157,4 @@ Enforced at the orchestrator on every message.
 | **Schema validation** | Message payload must conform to the expected schema |
 | **Logging** | Every routed message is logged to [[arch-observability|Observability]] with sender SVID, recipient, timestamp |
 | **Rate limiting** | Per-agent message quotas enforced at the orchestrator |
+| **Transport isolation** | Agents cannot access NATS directly — daemon subscribes via orchestrator-issued credentials, never publishes |
