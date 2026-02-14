@@ -473,12 +473,21 @@ class TestArtifactModes:
         assert data["mode"] == "off"
 
     @pytest.mark.asyncio
-    async def test_download_warn_error_returns_404(self, client, monkeypatch):
+    async def test_download_warn_not_found_returns_404(self, client, monkeypatch):
         monkeypatch.setattr(settings.artifact, "mode", "warn")
         with patch(
             "brainbox.api.download_artifact",
             side_effect=ArtifactError("download", "k", "not found"),
         ):
             resp = await client.get("/api/artifacts/test/f.txt")
-        # warn mode returns None → endpoint raises 404
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_download_enforce_not_found_returns_404(self, client, monkeypatch):
+        monkeypatch.setattr(settings.artifact, "mode", "enforce")
+        with patch(
+            "brainbox.api.download_artifact",
+            side_effect=ArtifactError("download", "k", "not found"),
+        ):
+            resp = await client.get("/api/artifacts/test/f.txt")
         assert resp.status_code == 404

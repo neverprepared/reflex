@@ -559,6 +559,8 @@ async def _artifact_op(operation_fn, *args, **kwargs):
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, lambda: operation_fn(*args, **kwargs))
     except ArtifactError as exc:
+        if "not found" in exc.reason:
+            raise HTTPException(status_code=404, detail=str(exc))
         if mode == "enforce":
             raise HTTPException(status_code=502, detail=str(exc))
         log.warning("artifact.operation_failed", metadata={"error": str(exc)})
