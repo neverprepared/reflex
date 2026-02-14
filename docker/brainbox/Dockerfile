@@ -96,6 +96,19 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
 ENV PATH="/home/developer/.cargo/bin:${PATH}"
 
 # =============================================================================
+# Cloud CLIs — AWS and Azure
+# =============================================================================
+USER root
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscliv2.zip
+
+RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
+    && rm -rf /var/lib/apt/lists/*
+USER developer
+
+# =============================================================================
 # Shell configuration — ensure version managers work in interactive sessions
 # =============================================================================
 RUN cat >> ~/.bashrc <<'BASHRC'
