@@ -74,7 +74,7 @@ class TestResolveProfileMounts:
             result = _resolve_profile_mounts()
         assert str(aws_dir) in result
         assert result[str(aws_dir)]["bind"] == "/home/developer/.aws"
-        assert result[str(aws_dir)]["mode"] == "ro"
+        assert result[str(aws_dir)]["mode"] == "rw"
 
     def test_mounts_aws_from_env_var(self, tmp_path):
         aws_dir = tmp_path / "custom-aws"
@@ -109,7 +109,7 @@ class TestResolveProfileMounts:
             result = _resolve_profile_mounts()
         assert str(azure_dir) in result
         assert result[str(azure_dir)]["bind"] == "/home/developer/.azure"
-        assert result[str(azure_dir)]["mode"] == "ro"
+        assert result[str(azure_dir)]["mode"] == "rw"
 
     def test_mounts_azure_from_env_var(self, tmp_path):
         azure_dir = tmp_path / "custom-azure"
@@ -142,7 +142,7 @@ class TestResolveProfileMounts:
             result = _resolve_profile_mounts()
         assert str(kube_dir) in result
         assert result[str(kube_dir)]["bind"] == "/home/developer/.kube"
-        assert result[str(kube_dir)]["mode"] == "ro"
+        assert result[str(kube_dir)]["mode"] == "rw"
 
     def test_mounts_kube_from_env_var(self, tmp_path):
         kube_dir = tmp_path / "custom-kube"
@@ -177,7 +177,7 @@ class TestResolveProfileMounts:
             result = _resolve_profile_mounts()
         assert str(ssh_dir) in result
         assert result[str(ssh_dir)]["bind"] == "/home/developer/.ssh"
-        assert result[str(ssh_dir)]["mode"] == "ro"
+        assert result[str(ssh_dir)]["mode"] == "rw"
 
     def test_skips_ssh_when_disabled(self, tmp_path):
         (tmp_path / ".ssh").mkdir()
@@ -205,7 +205,7 @@ class TestResolveProfileMounts:
             result = _resolve_profile_mounts()
         assert str(gitconfig) in result
         assert result[str(gitconfig)]["bind"] == "/home/developer/.gitconfig"
-        assert result[str(gitconfig)]["mode"] == "ro"
+        assert result[str(gitconfig)]["mode"] == "rw"
 
     def test_mounts_gitconfig_from_env_var(self, tmp_path):
         custom_gitconfig = tmp_path / "custom.gitconfig"
@@ -508,8 +508,8 @@ class TestProvisionProfileMounts:
         mock_client.containers.create.return_value = MagicMock()
 
         profile_mounts = {
-            str(aws_dir): {"bind": "/home/developer/.aws", "mode": "ro"},
-            str(ssh_dir): {"bind": "/home/developer/.ssh", "mode": "ro"},
+            str(aws_dir): {"bind": "/home/developer/.aws", "mode": "rw"},
+            str(ssh_dir): {"bind": "/home/developer/.ssh", "mode": "rw"},
         }
 
         with (
@@ -526,7 +526,7 @@ class TestProvisionProfileMounts:
         volumes = create_call[1]["volumes"]
         assert str(aws_dir) in volumes
         assert volumes[str(aws_dir)]["bind"] == "/home/developer/.aws"
-        assert volumes[str(aws_dir)]["mode"] == "ro"
+        assert volumes[str(aws_dir)]["mode"] == "rw"
         assert str(ssh_dir) in volumes
         assert "aws" in ctx.profile_mounts
         assert "ssh" in ctx.profile_mounts

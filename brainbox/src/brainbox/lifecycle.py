@@ -122,11 +122,11 @@ def _resolve_profile_mounts() -> dict[str, dict[str, str]]:
             if found is None and fallback.is_file():
                 found = fallback
             if found is not None:
-                mounts[str(found)] = {"bind": container_targets[name], "mode": "ro"}
+                mounts[str(found)] = {"bind": container_targets[name], "mode": "rw"}
         else:
             host_dir = _resolve_dir(env_vars, fallback, use_parent=use_parent)
             if host_dir is not None:
-                mounts[str(host_dir)] = {"bind": container_targets[name], "mode": "ro"}
+                mounts[str(host_dir)] = {"bind": container_targets[name], "mode": "rw"}
 
     return mounts
 
@@ -336,6 +336,7 @@ async def provision(
     llm_provider: str = "claude",
     llm_model: str | None = None,
     ollama_host: str | None = None,
+    workspace_profile: str | None = None,
 ) -> SessionContext:
     resolved_role = role or settings.role
     resolved_prefix = settings.container_prefix or f"{resolved_role}-"
@@ -391,7 +392,8 @@ async def provision(
             "brainbox.role": resolved_role,
             "brainbox.llm_provider": llm_provider,
             "brainbox.llm_model": llm_model or "",
-            "brainbox.workspace_profile": os.environ.get("WORKSPACE_PROFILE", ""),
+            "brainbox.workspace_profile": workspace_profile
+            or os.environ.get("WORKSPACE_PROFILE", ""),
         },
         "detach": True,
     }
@@ -745,6 +747,7 @@ async def run_pipeline(
     llm_provider: str = "claude",
     llm_model: str | None = None,
     ollama_host: str | None = None,
+    workspace_profile: str | None = None,
 ) -> SessionContext:
     ctx = await provision(
         session_name=session_name,
@@ -757,6 +760,7 @@ async def run_pipeline(
         llm_provider=llm_provider,
         llm_model=llm_model,
         ollama_host=ollama_host,
+        workspace_profile=workspace_profile,
     )
     await configure(ctx)
     await start(ctx)

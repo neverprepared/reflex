@@ -357,6 +357,7 @@ async def api_create_session(request: Request):
     llm_provider = body.get("llm_provider", "claude")
     llm_model = body.get("llm_model") or None
     ollama_host = body.get("ollama_host") or None
+    workspace_profile = body.get("workspace_profile") or None
     try:
         ctx = await run_pipeline(
             session_name=name or "default",
@@ -366,6 +367,7 @@ async def api_create_session(request: Request):
             llm_provider=llm_provider,
             llm_model=llm_model,
             ollama_host=ollama_host,
+            workspace_profile=workspace_profile,
         )
         return {"success": True, "url": f"http://localhost:{ctx.port}"}
     except Exception as exc:

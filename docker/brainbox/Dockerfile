@@ -99,7 +99,8 @@ ENV PATH="/home/developer/.cargo/bin:${PATH}"
 # Cloud CLIs — AWS and Azure
 # =============================================================================
 USER root
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip \
+RUN ARCH=$(uname -m) \
+    && curl "https://awscli.amazonaws.com/awscli-exe-linux-${ARCH}.zip" -o /tmp/awscliv2.zip \
     && unzip -q /tmp/awscliv2.zip -d /tmp \
     && /tmp/aws/install \
     && rm -rf /tmp/aws /tmp/awscliv2.zip
@@ -107,6 +108,8 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awsc
 RUN curl -sL https://aka.ms/InstallAzureCLIDeb | bash \
     && rm -rf /var/lib/apt/lists/*
 USER developer
+
+RUN mkdir -p /home/developer/.azure
 
 # =============================================================================
 # Shell configuration — ensure version managers work in interactive sessions
