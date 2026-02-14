@@ -256,26 +256,37 @@ if [[ -d "$GLOBAL_DIR" ]]; then
     fi
 fi
 
-# Load environment variables from .env file
-# Tool-specific paths and non-secret config belong in .env, not here
-dotenv_if_exists .env
+# Resolve profile environment (template .env + 1Password secrets)
+# Cached in volatile storage so 1Password is only called once per reboot
+_sp_cache="${TMPDIR:-/tmp}/sp-profiles/${WORKSPACE_PROFILE}"
+_sp_env="${_sp_cache}/.env"
 
-# Load secrets from 1Password vault (auto-discovered from vault items)
-_op_vault="workspace-${WORKSPACE_PROFILE}"
-if command -v op &>/dev/null && command -v jq &>/dev/null; then
-    _op_ids=$(op item list --vault "$_op_vault" --format json 2>/dev/null | jq -r '.[].id' 2>/dev/null)
-    if [ -n "$_op_ids" ]; then
-        for _op_id in $_op_ids; do
-            eval "$(op item get "$_op_id" --format json 2>/dev/null | jq -r '
-                .title as $t |
-                .fields[] |
-                select(.value != "" and .value != null and .label != "" and .label != null and .id != "notesPlain" and .type != "OTP") |
-                "export " + ($t + "_" + .label | gsub("[^A-Za-z0-9]"; "_") | gsub("_+"; "_") | gsub("^_|_$"; "") | ascii_upcase) + "=" + (.value | @sh)
-            ' 2>/dev/null)"
-        done
-        log_status "Loaded secrets from 1Password vault: $_op_vault"
+if [ ! -f "$_sp_env" ]; then
+    mkdir -p "$_sp_cache" && chmod 700 "$_sp_cache"
+    # Start with template (tool paths, non-secret config)
+    cp .env "$_sp_env"
+    # Append 1Password secrets
+    _op_vault="workspace-${WORKSPACE_PROFILE}"
+    if command -v op &>/dev/null && command -v jq &>/dev/null; then
+        _op_ids=$(op item list --vault "$_op_vault" --format json 2>/dev/null | jq -r '.[].id' 2>/dev/null)
+        if [ -n "$_op_ids" ]; then
+            echo "" >> "$_sp_env"
+            for _op_id in $_op_ids; do
+                op item get "$_op_id" --format json 2>/dev/null | jq -r '
+                    .title as $t |
+                    .fields[] |
+                    select(.value != "" and .value != null and .label != "" and .label != null and .id != "notesPlain" and .type != "OTP") |
+                    ($t + "_" + .label | gsub("[^A-Za-z0-9]"; "_") | gsub("_+"; "_") | gsub("^_|_$"; "") | ascii_upcase) + "=" + (.value | @sh)
+                ' >> "$_sp_env" 2>/dev/null
+            done
+            log_status "Loaded secrets from 1Password vault: $_op_vault"
+        fi
     fi
+    chmod 600 "$_sp_env"
 fi
+
+# Load the resolved environment (template + secrets)
+dotenv_if_exists "$_sp_env"
 
 # Load local overrides
 dotenv_if_exists .envrc.local

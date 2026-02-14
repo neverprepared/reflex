@@ -54,10 +54,15 @@ class ArtifactSettings(BaseSettings):
     region: str = "us-east-1"
 
 
-class CloudSettings(BaseSettings):
+class ProfileSettings(BaseSettings):
+    mount_env: bool = True  # mount the profile .env from volatile cache
     mount_aws: bool = True
     mount_azure: bool = True
     mount_kube: bool = True
+    mount_ssh: bool = True  # .ssh directory
+    mount_gitconfig: bool = True  # .gitconfig file
+    mount_gcloud: bool = False  # opt-in
+    mount_terraform: bool = False  # opt-in
 
 
 class OllamaSettings(BaseSettings):
@@ -90,7 +95,7 @@ class Settings(BaseSettings):
     hardening: HardeningSettings = Field(default_factory=HardeningSettings)
     cosign: CosignSettings = Field(default_factory=CosignSettings)
     artifact: ArtifactSettings = Field(default_factory=ArtifactSettings)
-    cloud: CloudSettings = Field(default_factory=CloudSettings)
+    profile: ProfileSettings = Field(default_factory=ProfileSettings)
     hub: HubSettings = Field(default_factory=HubSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
 

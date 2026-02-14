@@ -52,60 +52,144 @@ async def _run(fn: Any, *args: Any, **kwargs: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_cloud_mounts() -> dict[str, dict[str, str]]:
-    """Resolve cloud CLI credential directories to Docker volume mounts.
+def _resolve_dir(env_vars: list[str], fallback: Path, *, use_parent: bool = False) -> Path | None:
+    """Find a host directory from env vars or a fallback path.
+
+    When *use_parent* is True the env var value is treated as a file path and
+    its parent directory is returned instead.
+    """
+    for var in env_vars:
+        val = os.environ.get(var)
+        if val:
+            candidate = Path(val).parent if use_parent else Path(val)
+            if candidate.is_dir():
+                return candidate
+    if fallback.is_dir():
+        return fallback
+    return None
+
+
+def _resolve_profile_mounts() -> dict[str, dict[str, str]]:
+    """Resolve profile credential / config directories to Docker volume mounts.
 
     Returns a dict of host_path → {"bind": container_path, "mode": "ro"}
-    for each cloud provider whose config dir exists on the host.
+    for each mount type whose config dir exists on the host and is enabled.
     """
     mounts: dict[str, dict[str, str]] = {}
     home = Path.home()
+    ws = os.environ.get("WORKSPACE_HOME", "")
+    ws_path = Path(ws) if ws else home
+    p = settings.profile
 
-    if settings.cloud.mount_aws:
-        aws_dir = None
-        for env_var in ("AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"):
-            val = os.environ.get(env_var)
-            if val:
-                candidate = Path(val).parent
-                if candidate.is_dir():
-                    aws_dir = candidate
+    mount_specs: list[tuple[bool, str, list[str], Path, bool]] = [
+        # (enabled, name, env_vars, fallback, use_parent)
+        (
+            p.mount_aws,
+            "aws",
+            ["AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"],
+            home / ".aws",
+            True,
+        ),
+        (p.mount_azure, "azure", ["AZURE_CONFIG_DIR"], home / ".azure", False),
+        (p.mount_kube, "kube", ["KUBECONFIG"], home / ".kube", True),
+        (p.mount_ssh, "ssh", [], ws_path / ".ssh", False),
+        (p.mount_gitconfig, "gitconfig", ["GIT_CONFIG_GLOBAL"], ws_path / ".gitconfig", False),
+        (p.mount_gcloud, "gcloud", ["CLOUDSDK_CONFIG"], home / ".gcloud", False),
+        (p.mount_terraform, "terraform", ["TF_CLI_CONFIG_FILE"], home / ".terraform.d", True),
+    ]
+
+    container_targets = {
+        "aws": "/home/developer/.aws",
+        "azure": "/home/developer/.azure",
+        "kube": "/home/developer/.kube",
+        "ssh": "/home/developer/.ssh",
+        "gitconfig": "/home/developer/.gitconfig",
+        "gcloud": "/home/developer/.gcloud",
+        "terraform": "/home/developer/.terraform.d",
+    }
+
+    for enabled, name, env_vars, fallback, use_parent in mount_specs:
+        if not enabled:
+            continue
+        # gitconfig is a file mount, not a directory
+        if name == "gitconfig":
+            found = None
+            for var in env_vars:
+                val = os.environ.get(var)
+                if val and Path(val).is_file():
+                    found = Path(val)
                     break
-        if aws_dir is None:
-            candidate = home / ".aws"
-            if candidate.is_dir():
-                aws_dir = candidate
-        if aws_dir is not None:
-            mounts[str(aws_dir)] = {"bind": "/home/developer/.aws", "mode": "ro"}
-
-    if settings.cloud.mount_azure:
-        azure_dir = None
-        val = os.environ.get("AZURE_CONFIG_DIR")
-        if val:
-            candidate = Path(val)
-            if candidate.is_dir():
-                azure_dir = candidate
-        if azure_dir is None:
-            candidate = home / ".azure"
-            if candidate.is_dir():
-                azure_dir = candidate
-        if azure_dir is not None:
-            mounts[str(azure_dir)] = {"bind": "/home/developer/.azure", "mode": "ro"}
-
-    if settings.cloud.mount_kube:
-        kube_dir = None
-        val = os.environ.get("KUBECONFIG")
-        if val:
-            candidate = Path(val).parent
-            if candidate.is_dir():
-                kube_dir = candidate
-        if kube_dir is None:
-            candidate = home / ".kube"
-            if candidate.is_dir():
-                kube_dir = candidate
-        if kube_dir is not None:
-            mounts[str(kube_dir)] = {"bind": "/home/developer/.kube", "mode": "ro"}
+            if found is None and fallback.is_file():
+                found = fallback
+            if found is not None:
+                mounts[str(found)] = {"bind": container_targets[name], "mode": "ro"}
+        else:
+            host_dir = _resolve_dir(env_vars, fallback, use_parent=use_parent)
+            if host_dir is not None:
+                mounts[str(host_dir)] = {"bind": container_targets[name], "mode": "ro"}
 
     return mounts
+
+
+# Vars that are host-specific and should not be forwarded into containers
+_HOST_ONLY_VARS = frozenset(
+    {
+        "SSH_AUTH_SOCK",
+        "GIT_SSH_COMMAND",
+        "TMPDIR",
+        "SHELL",
+        "TERM_PROGRAM",
+        "TERM_SESSION_ID",
+        "HOME",
+        "USER",
+        "LOGNAME",
+        "PATH",
+        "PWD",
+        "OLDPWD",
+        "SHLVL",
+        "XDG_CONFIG_HOME",
+    }
+)
+
+
+def _resolve_profile_env() -> str | None:
+    """Read the volatile .env cache and return content suitable for a container.
+
+    Returns the file content with host-only vars stripped and workspace identity
+    vars prepended, or None if no cached .env exists.
+    """
+    profile = os.environ.get("WORKSPACE_PROFILE", "")
+    if not profile:
+        return None
+
+    tmpdir = os.environ.get("TMPDIR", "/tmp")
+    cache_env = Path(tmpdir) / "sp-profiles" / profile / ".env"
+    if not cache_env.is_file():
+        return None
+
+    lines: list[str] = []
+    # Prepend workspace identity
+    lines.append(f"WORKSPACE_PROFILE={profile}")
+    lines.append("WORKSPACE_HOME=/home/developer")
+
+    try:
+        for raw_line in cache_env.read_text().splitlines():
+            stripped = raw_line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            # Extract var name (handle KEY=VALUE and export KEY=VALUE)
+            assignment = stripped
+            if assignment.startswith("export "):
+                assignment = assignment[7:]
+            var_name = assignment.split("=", 1)[0].strip()
+            if var_name in _HOST_ONLY_VARS:
+                continue
+            # Rewrite $WORKSPACE_HOME references (already handled by sourcing)
+            lines.append(stripped)
+    except OSError:
+        return None
+
+    return "\n".join(lines)
 
 
 def _find_available_port(start: int = 7681) -> int:
@@ -306,17 +390,23 @@ async def provision(
             mode = parts[2] if len(parts) > 2 else "rw"
             volumes[host_path] = {"bind": container_path, "mode": mode}
 
-    # Cloud CLI credential mounts (read-only)
-    cloud_mounts = _resolve_cloud_mounts()
-    volumes.update(cloud_mounts)
-    for mount in cloud_mounts.values():
-        bind = mount["bind"]
-        if bind.endswith("/.aws"):
-            ctx.cloud_mounts.add("aws")
-        elif bind.endswith("/.azure"):
-            ctx.cloud_mounts.add("azure")
-        elif bind.endswith("/.kube"):
-            ctx.cloud_mounts.add("kube")
+    # Profile credential / config mounts (read-only)
+    profile_mounts = _resolve_profile_mounts()
+    volumes.update(profile_mounts)
+    # Track which mounts were actually resolved
+    _bind_to_name = {
+        "/home/developer/.aws": "aws",
+        "/home/developer/.azure": "azure",
+        "/home/developer/.kube": "kube",
+        "/home/developer/.ssh": "ssh",
+        "/home/developer/.gitconfig": "gitconfig",
+        "/home/developer/.gcloud": "gcloud",
+        "/home/developer/.terraform.d": "terraform",
+    }
+    for mount in profile_mounts.values():
+        name = _bind_to_name.get(mount["bind"])
+        if name:
+            ctx.profile_mounts.add(name)
 
     kwargs["volumes"] = volumes
 
@@ -481,37 +571,23 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
         except Exception as exc:
             slog.warning("container.ttyd_start_failed", metadata={"reason": str(exc)})
 
-    # Workspace identity + cloud CLI env vars — write to /home/developer/.cloud_env
-    cloud_env_lines: list[str] = []
-    workspace_profile = os.environ.get("WORKSPACE_PROFILE", "")
-    if workspace_profile:
-        cloud_env_lines.append(f"export WORKSPACE_PROFILE={workspace_profile}")
-    if "aws" in ctx.cloud_mounts:
-        cloud_env_lines.append("export AWS_CONFIG_FILE=/home/developer/.aws/config")
-        cloud_env_lines.append(
-            "export AWS_SHARED_CREDENTIALS_FILE=/home/developer/.aws/credentials"
-        )
-    if "azure" in ctx.cloud_mounts:
-        cloud_env_lines.append("export AZURE_CONFIG_DIR=/home/developer/.azure")
-    if "kube" in ctx.cloud_mounts:
-        cloud_env_lines.append("export KUBECONFIG=/home/developer/.kube/config")
-
-    if cloud_env_lines:
-        cloud_env_body = "\n".join(cloud_env_lines)
+    # Write profile env to /run/profile/.env (replaces .cloud_env)
+    profile_env = _resolve_profile_env()
+    if profile_env:
         try:
             await _run(
                 container.exec_run,
                 [
                     "sh",
                     "-c",
-                    f"echo '{_shell_escape(cloud_env_body)}' > /home/developer/.cloud_env"
-                    " && chmod 644 /home/developer/.cloud_env"
-                    " && grep -q cloud_env /home/developer/.profile 2>/dev/null"
-                    " || echo '[ -f ~/.cloud_env ] && . ~/.cloud_env' >> /home/developer/.profile",
+                    f"echo '{_shell_escape(profile_env)}' > /run/profile/.env"
+                    " && chmod 644 /run/profile/.env"
+                    " && grep -q /run/profile/.env /home/developer/.profile 2>/dev/null"
+                    " || echo 'set -a && . /run/profile/.env && set +a' >> /home/developer/.profile",
                 ],
             )
         except Exception as exc:
-            slog.warning("container.cloud_env_write_failed", metadata={"reason": str(exc)})
+            slog.warning("container.profile_env_write_failed", metadata={"reason": str(exc)})
 
     ctx.state = SessionState.RUNNING
     slog.info("container.started", metadata={"port": ctx.port, "hardened": ctx.hardened})

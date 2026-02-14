@@ -40,6 +40,13 @@ def get_hardening_kwargs(*, user: str | None = None) -> dict[str, Any]:
                 tmpfs_size=_parse_tmpfs_size(r.tmpfs_secrets),
                 tmpfs_mode=0o400,
             ),
+            Mount(
+                target="/run/profile",
+                source="",
+                type="tmpfs",
+                tmpfs_size=_parse_tmpfs_size("1M"),
+                tmpfs_mode=0o644,
+            ),
         ],
     }
 
