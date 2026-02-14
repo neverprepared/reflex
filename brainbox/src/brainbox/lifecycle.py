@@ -69,33 +69,59 @@ def _resolve_dir(env_vars: list[str], fallback: Path, *, use_parent: bool = Fals
     return None
 
 
-def _resolve_profile_mounts() -> dict[str, dict[str, str]]:
+def _resolve_profile_mounts(
+    workspace_home: str | None = None,
+) -> dict[str, dict[str, str]]:
     """Resolve profile credential / config directories to Docker volume mounts.
 
-    Returns a dict of host_path → {"bind": container_path, "mode": "ro"}
-    for each mount type whose config dir exists on the host and is enabled.
+    When *workspace_home* is provided, mount paths are derived from it and
+    the API process's own env vars are ignored (they belong to a different
+    profile).  When omitted, falls back to the current process environment.
+
+    Returns a dict of host_path → {"bind": container_path, "mode": "rw"}.
     """
     mounts: dict[str, dict[str, str]] = {}
-    home = Path.home()
-    ws = os.environ.get("WORKSPACE_HOME", "")
-    ws_path = Path(ws) if ws else home
     p = settings.profile
+
+    # When workspace_home is explicit, all config dirs live under it and
+    # env var lookups (which reflect the API host's profile) are skipped.
+    if workspace_home:
+        ws_path = Path(workspace_home)
+        home = ws_path
+        use_env = False
+    else:
+        home = Path.home()
+        ws = os.environ.get("WORKSPACE_HOME", "")
+        ws_path = Path(ws) if ws else home
+        use_env = True
 
     mount_specs: list[tuple[bool, str, list[str], Path, bool]] = [
         # (enabled, name, env_vars, fallback, use_parent)
         (
             p.mount_aws,
             "aws",
-            ["AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"],
+            ["AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"] if use_env else [],
             home / ".aws",
             True,
         ),
-        (p.mount_azure, "azure", ["AZURE_CONFIG_DIR"], home / ".azure", False),
-        (p.mount_kube, "kube", ["KUBECONFIG"], home / ".kube", True),
+        (p.mount_azure, "azure", ["AZURE_CONFIG_DIR"] if use_env else [], home / ".azure", False),
+        (p.mount_kube, "kube", ["KUBECONFIG"] if use_env else [], home / ".kube", True),
         (p.mount_ssh, "ssh", [], ws_path / ".ssh", False),
-        (p.mount_gitconfig, "gitconfig", ["GIT_CONFIG_GLOBAL"], ws_path / ".gitconfig", False),
-        (p.mount_gcloud, "gcloud", ["CLOUDSDK_CONFIG"], home / ".gcloud", False),
-        (p.mount_terraform, "terraform", ["TF_CLI_CONFIG_FILE"], home / ".terraform.d", True),
+        (
+            p.mount_gitconfig,
+            "gitconfig",
+            ["GIT_CONFIG_GLOBAL"] if use_env else [],
+            ws_path / ".gitconfig",
+            False,
+        ),
+        (p.mount_gcloud, "gcloud", ["CLOUDSDK_CONFIG"] if use_env else [], home / ".gcloud", False),
+        (
+            p.mount_terraform,
+            "terraform",
+            ["TF_CLI_CONFIG_FILE"] if use_env else [],
+            home / ".terraform.d",
+            True,
+        ),
     ]
 
     container_targets = {
@@ -156,13 +182,17 @@ _HOST_ONLY_VARS = frozenset(
 )
 
 
-def _resolve_profile_env() -> str | None:
+def _resolve_profile_env(workspace_profile: str | None = None) -> str | None:
     """Read the volatile .env cache and return content suitable for a container.
+
+    When *workspace_profile* is provided it is used instead of the API
+    process's own WORKSPACE_PROFILE env var.  TMPDIR is shared across
+    profiles on the same OS user so we always read it from os.environ.
 
     Returns the file content with host-only vars stripped and workspace identity
     vars prepended, or None if no cached .env exists.
     """
-    profile = os.environ.get("WORKSPACE_PROFILE", "")
+    profile = workspace_profile or os.environ.get("WORKSPACE_PROFILE", "")
     if not profile:
         return None
 
@@ -337,6 +367,7 @@ async def provision(
     llm_model: str | None = None,
     ollama_host: str | None = None,
     workspace_profile: str | None = None,
+    workspace_home: str | None = None,
 ) -> SessionContext:
     resolved_role = role or settings.role
     resolved_prefix = settings.container_prefix or f"{resolved_role}-"
@@ -359,6 +390,8 @@ async def provision(
         llm_provider=llm_provider,
         llm_model=llm_model,
         ollama_host=ollama_host,
+        workspace_profile=workspace_profile,
+        workspace_home=workspace_home,
     )
 
     slog = get_logger(session_name=session_name, container_name=container_name)
@@ -413,7 +446,7 @@ async def provision(
             volumes[host_path] = {"bind": container_path, "mode": mode}
 
     # Profile credential / config mounts (read-only)
-    profile_mounts = _resolve_profile_mounts()
+    profile_mounts = _resolve_profile_mounts(workspace_home=workspace_home)
     volumes.update(profile_mounts)
     # Track which mounts were actually resolved
     _bind_to_name = {
@@ -642,7 +675,7 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
             slog.warning("container.ttyd_start_failed", metadata={"reason": str(exc)})
 
     # Write profile env to /run/profile/.env (replaces .cloud_env)
-    profile_env = _resolve_profile_env()
+    profile_env = _resolve_profile_env(workspace_profile=ctx.workspace_profile)
     if profile_env:
         try:
             # Create /run/profile as root (the dir is root-owned in legacy mode;
@@ -748,6 +781,7 @@ async def run_pipeline(
     llm_model: str | None = None,
     ollama_host: str | None = None,
     workspace_profile: str | None = None,
+    workspace_home: str | None = None,
 ) -> SessionContext:
     ctx = await provision(
         session_name=session_name,
@@ -761,6 +795,7 @@ async def run_pipeline(
         llm_model=llm_model,
         ollama_host=ollama_host,
         workspace_profile=workspace_profile,
+        workspace_home=workspace_home,
     )
     await configure(ctx)
     await start(ctx)

@@ -313,6 +313,56 @@ class TestResolveProfileMounts:
             result = _resolve_profile_mounts()
         assert result == {}
 
+    # --- Explicit workspace_home ---
+
+    def test_mounts_with_explicit_workspace_home(self, tmp_path):
+        """workspace_home param overrides env var and Path.home()."""
+        ws = tmp_path / "firebuild"
+        ws.mkdir()
+        (ws / ".aws").mkdir()
+        (ws / ".ssh").mkdir()
+        (ws / ".gitconfig").write_text("[user]\n    name = Firebuild\n")
+
+        with (
+            patch("brainbox.lifecycle.Path.home", return_value=tmp_path / "wrong"),
+            patch.dict("os.environ", {"WORKSPACE_HOME": str(tmp_path / "wrong")}, clear=True),
+            patch("brainbox.lifecycle.settings") as mock_settings,
+        ):
+            mock_settings.profile = ProfileSettings()
+            result = _resolve_profile_mounts(workspace_home=str(ws))
+
+        assert str(ws / ".aws") in result
+        assert str(ws / ".ssh") in result
+        assert str(ws / ".gitconfig") in result
+
+    def test_workspace_home_skips_env_var_resolution(self, tmp_path):
+        """When workspace_home is provided, env vars like AWS_CONFIG_FILE are ignored."""
+        ws = tmp_path / "firebuild"
+        ws.mkdir()
+        (ws / ".aws").mkdir()
+
+        wrong_aws = tmp_path / "wrong-aws"
+        wrong_aws.mkdir()
+        (wrong_aws / "config").touch()
+
+        with (
+            patch("brainbox.lifecycle.Path.home", return_value=tmp_path / "wrong"),
+            patch.dict(
+                "os.environ",
+                {
+                    "AWS_CONFIG_FILE": str(wrong_aws / "config"),
+                    "WORKSPACE_HOME": str(tmp_path / "wrong"),
+                },
+                clear=True,
+            ),
+            patch("brainbox.lifecycle.settings") as mock_settings,
+        ):
+            mock_settings.profile = ProfileSettings()
+            result = _resolve_profile_mounts(workspace_home=str(ws))
+
+        assert str(ws / ".aws") in result
+        assert str(wrong_aws) not in result
+
 
 # ---------------------------------------------------------------------------
 # _resolve_profile_env() — reads volatile .env cache
@@ -433,6 +483,43 @@ class TestResolveProfileEnv:
         home_lines = [l for l in lines if l.startswith("export HOME=") or l == "HOME=/bad"]
         assert home_lines == []  # stripped as host-only
         assert "export MY_VAR=good" in result
+
+    # --- Explicit workspace_profile ---
+
+    def test_reads_env_with_explicit_profile(self, tmp_path):
+        """workspace_profile param overrides WORKSPACE_PROFILE env var."""
+        cache_dir = tmp_path / "sp-profiles" / "firebuild"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / ".env").write_text('SOME_KEY="value"\n')
+
+        with patch.dict(
+            "os.environ",
+            {"WORKSPACE_PROFILE": "personal", "TMPDIR": str(tmp_path)},
+            clear=True,
+        ):
+            result = _resolve_profile_env(workspace_profile="firebuild")
+
+        assert result is not None
+        lines = result.splitlines()
+        assert lines[0] == "WORKSPACE_PROFILE=firebuild"
+        assert 'SOME_KEY="value"' in result
+
+    def test_explicit_profile_ignores_env_var(self, tmp_path):
+        """When workspace_profile is passed, the env var WORKSPACE_PROFILE is not used."""
+        # Only set up cache for firebuild, not personal
+        cache_dir = tmp_path / "sp-profiles" / "firebuild"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / ".env").write_text("KEY=val\n")
+
+        with patch.dict(
+            "os.environ",
+            {"WORKSPACE_PROFILE": "personal", "TMPDIR": str(tmp_path)},
+            clear=True,
+        ):
+            result = _resolve_profile_env(workspace_profile="firebuild")
+
+        assert result is not None
+        assert "WORKSPACE_PROFILE=firebuild" in result
 
 
 # ---------------------------------------------------------------------------
@@ -576,6 +663,58 @@ class TestProvisionProfileMounts:
 
         assert ctx.profile_mounts == set()
 
+    @pytest.mark.asyncio
+    async def test_provision_passes_workspace_home_to_mounts(self):
+        """workspace_home is threaded from provision() to _resolve_profile_mounts()."""
+        mock_client = MagicMock()
+        mock_image = MagicMock()
+        mock_image.attrs = {"RepoDigests": []}
+        mock_client.images.get.return_value = mock_image
+        mock_client.containers.get.side_effect = NotFound("not found")
+        mock_client.containers.create.return_value = MagicMock()
+
+        with (
+            patch("brainbox.lifecycle._docker", return_value=mock_client),
+            patch("brainbox.lifecycle._find_available_port", return_value=7681),
+            patch("brainbox.lifecycle._verify_cosign", new_callable=AsyncMock),
+            patch("brainbox.lifecycle._resolve_profile_mounts", return_value={}) as mock_mounts,
+        ):
+            from brainbox.lifecycle import provision
+
+            await provision(
+                session_name="ws-home-test",
+                workspace_home="/Users/test/profiles/firebuild",
+            )
+
+        mock_mounts.assert_called_once_with(workspace_home="/Users/test/profiles/firebuild")
+
+    @pytest.mark.asyncio
+    async def test_provision_stores_workspace_fields_on_ctx(self):
+        """workspace_profile and workspace_home are stored on SessionContext."""
+        mock_client = MagicMock()
+        mock_image = MagicMock()
+        mock_image.attrs = {"RepoDigests": []}
+        mock_client.images.get.return_value = mock_image
+        mock_client.containers.get.side_effect = NotFound("not found")
+        mock_client.containers.create.return_value = MagicMock()
+
+        with (
+            patch("brainbox.lifecycle._docker", return_value=mock_client),
+            patch("brainbox.lifecycle._find_available_port", return_value=7681),
+            patch("brainbox.lifecycle._verify_cosign", new_callable=AsyncMock),
+            patch("brainbox.lifecycle._resolve_profile_mounts", return_value={}),
+        ):
+            from brainbox.lifecycle import provision
+
+            ctx = await provision(
+                session_name="ctx-fields-test",
+                workspace_profile="firebuild",
+                workspace_home="/Users/test/profiles/firebuild",
+            )
+
+        assert ctx.workspace_profile == "firebuild"
+        assert ctx.workspace_home == "/Users/test/profiles/firebuild"
+
 
 # ---------------------------------------------------------------------------
 # start() — profile env injection
@@ -669,3 +808,33 @@ class TestStartProfileEnv:
             if any("/run/profile/.env" in str(arg) for arg in c.args + tuple(c.kwargs.values()))
         ]
         assert len(profile_env_calls) == 0
+
+    @pytest.mark.asyncio
+    async def test_start_passes_workspace_profile_to_resolve(self):
+        """start() threads ctx.workspace_profile to _resolve_profile_env()."""
+        ctx = SessionContext(
+            session_name="wp-thread-test",
+            container_name="developer-wp-thread-test",
+            port=7683,
+            created_at=0,
+            ttl=3600,
+            hardened=False,
+            workspace_profile="firebuild",
+        )
+
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.exec_run.return_value = (0, b"")
+        mock_client.containers.get.return_value = mock_container
+
+        sessions = {ctx.session_name: ctx}
+        with (
+            patch("brainbox.lifecycle._docker", return_value=mock_client),
+            patch("brainbox.lifecycle._sessions", sessions),
+            patch("brainbox.lifecycle._resolve_profile_env", return_value=None) as mock_env,
+        ):
+            from brainbox.lifecycle import start
+
+            await start(ctx)
+
+        mock_env.assert_called_once_with(workspace_profile="firebuild")
