@@ -1,4 +1,4 @@
-f# Container Lifecycle
+# Container Lifecycle
 
 Every agent container follows a managed lifecycle. No container runs unbounded.
 
@@ -19,7 +19,7 @@ graph LR
 
 | Phase | What Happens |
 |---|---|
-| **Provision** | Pull agent image, verify signature (cosign), allocate resources from Docker/kind/vcluster |
+| **Provision** | Pull agent image, verify signature (cosign), allocate resources from Docker |
 | **Configure** | Write secrets to tmpfs via [[arch-secrets-management|1Password + direnv]], apply hardening flags |
 | **Start** | Launch the agent process inside the container |
 | **Monitor** | Continuous health checks, resource usage tracking, heartbeat validation |
@@ -29,16 +29,36 @@ graph LR
 
 ```mermaid
 graph LR
+    CI[CI Workflow<br/>build + push]
+    Sign[cosign sign<br/>keyless / GitHub OIDC]
     Registry[(Container<br/>Registry)]
-    Cosign[cosign verify<br/>check signature]
+    Cosign[cosign verify<br/>keyless or key-based]
     Provision[Provision<br/>Container]
 
+    CI --> Sign --> Registry
     Registry --> Cosign
     Cosign -->|"valid signature"| Provision
     Cosign -.->|"unsigned / invalid"| Reject([Reject])
 
     style Reject stroke:#f00,stroke-width:2px
 ```
+
+**CI signing**: The Docker workflow signs all images (base + role variants) using Sigstore keyless cosign with GitHub OIDC identity. No key pair to manage — signatures are cryptographically tied to the GitHub Actions workflow via Fulcio certificates and recorded in the Rekor transparency log.
+
+**Runtime verification**: Brainbox verifies image signatures during the Provision phase. Two strategies are supported:
+
+| Strategy | Config | CLI flags |
+|---|---|---|
+| **Keyless** (preferred) | `CL_COSIGN__CERTIFICATE_IDENTITY` + `CL_COSIGN__OIDC_ISSUER` | `--certificate-identity-regexp` + `--certificate-oidc-issuer` |
+| **Key-based** (fallback) | `CL_COSIGN__KEY` (path to PEM public key) | `--key` |
+
+When both are configured, keyless takes precedence. The `CL_COSIGN__MODE` setting controls behavior:
+
+| Mode | Behavior |
+|---|---|
+| `off` | Skip verification entirely |
+| `warn` (default) | Log warning on failure, continue provisioning |
+| `enforce` | Block provisioning on verification failure |
 
 | Requirement | Phase 1 | Later Phases |
 |---|---|---|
