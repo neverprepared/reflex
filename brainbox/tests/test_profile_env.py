@@ -10,6 +10,7 @@ from docker.errors import NotFound
 
 from brainbox.config import ProfileSettings, Settings
 from brainbox.lifecycle import (
+    _read_cache_vars,
     _resolve_oauth_account,
     _resolve_profile_env,
     _resolve_profile_mounts,
@@ -316,27 +317,74 @@ class TestResolveProfileMounts:
     # --- Explicit workspace_home ---
 
     def test_mounts_with_explicit_workspace_home(self, tmp_path):
-        """workspace_home param overrides env var and Path.home()."""
+        """workspace_home + workspace_profile reads cache and resolves mounts."""
         ws = tmp_path / "firebuild"
         ws.mkdir()
         (ws / ".aws").mkdir()
         (ws / ".ssh").mkdir()
         (ws / ".gitconfig").write_text("[user]\n    name = Firebuild\n")
 
+        # Set up volatile cache
+        cache_dir = tmp_path / "sp-profiles" / "firebuild"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / ".env").write_text(
+            'AWS_CONFIG_FILE="$WORKSPACE_HOME/.aws/config"\n'
+            'GIT_CONFIG_GLOBAL="$WORKSPACE_HOME/.gitconfig"\n'
+        )
+
         with (
             patch("brainbox.lifecycle.Path.home", return_value=tmp_path / "wrong"),
-            patch.dict("os.environ", {"WORKSPACE_HOME": str(tmp_path / "wrong")}, clear=True),
+            patch.dict(
+                "os.environ",
+                {"WORKSPACE_HOME": str(tmp_path / "wrong"), "TMPDIR": str(tmp_path)},
+                clear=True,
+            ),
             patch("brainbox.lifecycle.settings") as mock_settings,
         ):
             mock_settings.profile = ProfileSettings()
-            result = _resolve_profile_mounts(workspace_home=str(ws))
+            result = _resolve_profile_mounts(workspace_profile="firebuild", workspace_home=str(ws))
 
         assert str(ws / ".aws") in result
         assert str(ws / ".ssh") in result
         assert str(ws / ".gitconfig") in result
 
-    def test_workspace_home_skips_env_var_resolution(self, tmp_path):
-        """When workspace_home is provided, env vars like AWS_CONFIG_FILE are ignored."""
+    def test_workspace_home_reads_cache_env_vars(self, tmp_path):
+        """When workspace_home + workspace_profile are provided, mounts resolve from cache."""
+        ws = tmp_path / "firebuild"
+        ws.mkdir()
+        (ws / ".aws").mkdir()
+
+        wrong_aws = tmp_path / "wrong-aws"
+        wrong_aws.mkdir()
+        (wrong_aws / "config").touch()
+
+        # Set up volatile cache pointing to workspace_home
+        cache_dir = tmp_path / "sp-profiles" / "firebuild"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / ".env").write_text('AWS_CONFIG_FILE="$WORKSPACE_HOME/.aws/config"\n')
+
+        with (
+            patch("brainbox.lifecycle.Path.home", return_value=tmp_path / "wrong"),
+            patch.dict(
+                "os.environ",
+                {
+                    "AWS_CONFIG_FILE": str(wrong_aws / "config"),
+                    "WORKSPACE_HOME": str(tmp_path / "wrong"),
+                    "TMPDIR": str(tmp_path),
+                },
+                clear=True,
+            ),
+            patch("brainbox.lifecycle.settings") as mock_settings,
+        ):
+            mock_settings.profile = ProfileSettings()
+            result = _resolve_profile_mounts(workspace_profile="firebuild", workspace_home=str(ws))
+
+        # Cache-resolved path wins, NOT the API host's env var
+        assert str(ws / ".aws") in result
+        assert str(wrong_aws) not in result
+
+    def test_workspace_home_without_profile_uses_fallback(self, tmp_path):
+        """workspace_home without workspace_profile falls back to directory-based resolution."""
         ws = tmp_path / "firebuild"
         ws.mkdir()
         (ws / ".aws").mkdir()
@@ -360,6 +408,7 @@ class TestResolveProfileMounts:
             mock_settings.profile = ProfileSettings()
             result = _resolve_profile_mounts(workspace_home=str(ws))
 
+        # No cache → env vars empty → falls back to directory
         assert str(ws / ".aws") in result
         assert str(wrong_aws) not in result
 
@@ -403,6 +452,49 @@ class TestResolveProfileMounts:
         # .aws is mounted from home, SSO cache is already inside it — no overlay
         sso_path = str(home / ".aws" / "sso" / "cache")
         assert sso_path not in result
+
+
+# ---------------------------------------------------------------------------
+# _read_cache_vars() — volatile cache reader
+# ---------------------------------------------------------------------------
+
+
+class TestReadCacheVars:
+    def test_expands_workspace_home_and_strips_quotes(self, tmp_path):
+        cache_dir = tmp_path / "sp-profiles" / "testprofile"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / ".env").write_text(
+            'AWS_CONFIG_FILE="$WORKSPACE_HOME/.aws/config"\n'
+            "AZURE_CONFIG_DIR='$WORKSPACE_HOME/.azure'\n"
+            "KUBECONFIG=$WORKSPACE_HOME/.kube/config\n"
+        )
+        with patch.dict("os.environ", {"TMPDIR": str(tmp_path)}, clear=True):
+            result = _read_cache_vars("testprofile", "/host/ws")
+
+        assert result["AWS_CONFIG_FILE"] == "/host/ws/.aws/config"
+        assert result["AZURE_CONFIG_DIR"] == "/host/ws/.azure"
+        assert result["KUBECONFIG"] == "/host/ws/.kube/config"
+
+    def test_returns_empty_when_no_cache(self, tmp_path):
+        with patch.dict("os.environ", {"TMPDIR": str(tmp_path)}, clear=True):
+            result = _read_cache_vars("nonexistent", "/host/ws")
+        assert result == {}
+
+    def test_skips_comments_and_blank_lines(self, tmp_path):
+        cache_dir = tmp_path / "sp-profiles" / "prof"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / ".env").write_text("# comment\n\n  \nREAL_VAR=value\n")
+        with patch.dict("os.environ", {"TMPDIR": str(tmp_path)}, clear=True):
+            result = _read_cache_vars("prof", "/host/ws")
+        assert result == {"REAL_VAR": "value"}
+
+    def test_handles_export_prefix(self, tmp_path):
+        cache_dir = tmp_path / "sp-profiles" / "prof"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / ".env").write_text('export MY_VAR="hello"\n')
+        with patch.dict("os.environ", {"TMPDIR": str(tmp_path)}, clear=True):
+            result = _read_cache_vars("prof", "/host/ws")
+        assert result == {"MY_VAR": "hello"}
 
 
 # ---------------------------------------------------------------------------
@@ -706,7 +798,7 @@ class TestProvisionProfileMounts:
 
     @pytest.mark.asyncio
     async def test_provision_passes_workspace_home_to_mounts(self):
-        """workspace_home is threaded from provision() to _resolve_profile_mounts()."""
+        """workspace_profile and workspace_home are threaded to _resolve_profile_mounts()."""
         mock_client = MagicMock()
         mock_image = MagicMock()
         mock_image.attrs = {"RepoDigests": []}
@@ -724,10 +816,14 @@ class TestProvisionProfileMounts:
 
             await provision(
                 session_name="ws-home-test",
+                workspace_profile="firebuild",
                 workspace_home="/Users/test/profiles/firebuild",
             )
 
-        mock_mounts.assert_called_once_with(workspace_home="/Users/test/profiles/firebuild")
+        mock_mounts.assert_called_once_with(
+            workspace_profile="firebuild",
+            workspace_home="/Users/test/profiles/firebuild",
+        )
 
     @pytest.mark.asyncio
     async def test_provision_stores_workspace_fields_on_ctx(self):

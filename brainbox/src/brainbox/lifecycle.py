@@ -52,14 +52,24 @@ async def _run(fn: Any, *args: Any, **kwargs: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _resolve_dir(env_vars: list[str], fallback: Path, *, use_parent: bool = False) -> Path | None:
+def _resolve_dir(
+    env_vars: list[str],
+    fallback: Path,
+    *,
+    use_parent: bool = False,
+    env_override: dict[str, str] | None = None,
+) -> Path | None:
     """Find a host directory from env vars or a fallback path.
 
     When *use_parent* is True the env var value is treated as a file path and
     its parent directory is returned instead.
+
+    When *env_override* is provided, look up variables there instead of
+    ``os.environ`` (used for cross-profile cache lookups).
     """
+    env_source = env_override if env_override is not None else os.environ
     for var in env_vars:
-        val = os.environ.get(var)
+        val = env_source.get(var)
         if val:
             candidate = Path(val).parent if use_parent else Path(val)
             if candidate.is_dir():
@@ -69,56 +79,117 @@ def _resolve_dir(env_vars: list[str], fallback: Path, *, use_parent: bool = Fals
     return None
 
 
+def _read_cache_vars(
+    workspace_profile: str,
+    workspace_home: str,
+) -> dict[str, str]:
+    """Read the volatile cache for a profile and return resolved env vars.
+
+    Expands ``$WORKSPACE_HOME`` references to the provided host path
+    and strips surrounding quotes from values.
+    """
+    tmpdir = os.environ.get("TMPDIR", "/tmp")
+    cache_env = Path(tmpdir) / "sp-profiles" / workspace_profile / ".env"
+    if not cache_env.is_file():
+        return {}
+
+    result: dict[str, str] = {}
+    for raw_line in cache_env.read_text().splitlines():
+        stripped = raw_line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if stripped.startswith("export "):
+            stripped = stripped[7:]
+        name, _, value = stripped.partition("=")
+        name = name.strip()
+        value = value.strip()
+        if not name or not value:
+            continue
+        # Strip surrounding quotes
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        # Expand $WORKSPACE_HOME to actual host path
+        value = value.replace("$WORKSPACE_HOME", workspace_home)
+        result[name] = value
+    return result
+
+
 def _resolve_profile_mounts(
+    workspace_profile: str | None = None,
     workspace_home: str | None = None,
 ) -> dict[str, dict[str, str]]:
     """Resolve profile credential / config directories to Docker volume mounts.
 
-    When *workspace_home* is provided, mount paths are derived from it and
-    the API process's own env vars are ignored (they belong to a different
-    profile).  When omitted, falls back to the current process environment.
+    When *workspace_home* is provided with a *workspace_profile*, the volatile
+    cache at ``$TMPDIR/sp-profiles/{profile}/.env`` is read to resolve env vars
+    from the target profile (expanding ``$WORKSPACE_HOME`` references).  When
+    only *workspace_home* is provided (no profile), falls back to directory-based
+    resolution.  When neither is provided, uses the current process environment.
 
     Returns a dict of host_path → {"bind": container_path, "mode": "rw"}.
     """
     mounts: dict[str, dict[str, str]] = {}
     p = settings.profile
 
-    # When workspace_home is explicit, all config dirs live under it and
-    # env var lookups (which reflect the API host's profile) are skipped.
     if workspace_home:
         ws_path = Path(workspace_home)
         home = ws_path
-        use_env = False
+        if workspace_profile:
+            cache_vars = _read_cache_vars(workspace_profile, workspace_home)
+        else:
+            cache_vars = {}
+        use_env = bool(cache_vars)
     else:
         home = Path.home()
         ws = os.environ.get("WORKSPACE_HOME", "")
         ws_path = Path(ws) if ws else home
+        cache_vars = {}
         use_env = True
+
+    env_override = cache_vars if cache_vars else None
 
     mount_specs: list[tuple[bool, str, list[str], Path, bool]] = [
         # (enabled, name, env_vars, fallback, use_parent)
         (
             p.mount_aws,
             "aws",
-            ["AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"] if use_env else [],
+            ["AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"] if (use_env or cache_vars) else [],
             home / ".aws",
             True,
         ),
-        (p.mount_azure, "azure", ["AZURE_CONFIG_DIR"] if use_env else [], home / ".azure", False),
-        (p.mount_kube, "kube", ["KUBECONFIG"] if use_env else [], home / ".kube", True),
+        (
+            p.mount_azure,
+            "azure",
+            ["AZURE_CONFIG_DIR"] if (use_env or cache_vars) else [],
+            home / ".azure",
+            False,
+        ),
+        (
+            p.mount_kube,
+            "kube",
+            ["KUBECONFIG"] if (use_env or cache_vars) else [],
+            home / ".kube",
+            True,
+        ),
         (p.mount_ssh, "ssh", [], ws_path / ".ssh", False),
         (
             p.mount_gitconfig,
             "gitconfig",
-            ["GIT_CONFIG_GLOBAL"] if use_env else [],
+            ["GIT_CONFIG_GLOBAL"] if (use_env or cache_vars) else [],
             ws_path / ".gitconfig",
             False,
         ),
-        (p.mount_gcloud, "gcloud", ["CLOUDSDK_CONFIG"] if use_env else [], home / ".gcloud", False),
+        (
+            p.mount_gcloud,
+            "gcloud",
+            ["CLOUDSDK_CONFIG"] if (use_env or cache_vars) else [],
+            home / ".gcloud",
+            False,
+        ),
         (
             p.mount_terraform,
             "terraform",
-            ["TF_CLI_CONFIG_FILE"] if use_env else [],
+            ["TF_CLI_CONFIG_FILE"] if (use_env or cache_vars) else [],
             home / ".terraform.d",
             True,
         ),
@@ -140,8 +211,9 @@ def _resolve_profile_mounts(
         # gitconfig is a file mount, not a directory
         if name == "gitconfig":
             found = None
+            env_source = env_override if env_override is not None else os.environ
             for var in env_vars:
-                val = os.environ.get(var)
+                val = env_source.get(var)
                 if val and Path(val).is_file():
                     found = Path(val)
                     break
@@ -150,7 +222,9 @@ def _resolve_profile_mounts(
             if found is not None:
                 mounts[str(found)] = {"bind": container_targets[name], "mode": "rw"}
         else:
-            host_dir = _resolve_dir(env_vars, fallback, use_parent=use_parent)
+            host_dir = _resolve_dir(
+                env_vars, fallback, use_parent=use_parent, env_override=env_override
+            )
             if host_dir is not None:
                 mounts[str(host_dir)] = {"bind": container_targets[name], "mode": "rw"}
 
@@ -458,7 +532,10 @@ async def provision(
             volumes[host_path] = {"bind": container_path, "mode": mode}
 
     # Profile credential / config mounts (read-only)
-    profile_mounts = _resolve_profile_mounts(workspace_home=workspace_home)
+    profile_mounts = _resolve_profile_mounts(
+        workspace_profile=workspace_profile,
+        workspace_home=workspace_home,
+    )
     volumes.update(profile_mounts)
     # Track which mounts were actually resolved
     _bind_to_name = {
