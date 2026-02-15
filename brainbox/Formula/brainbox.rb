@@ -11,7 +11,15 @@ class Brainbox < Formula
   depends_on "docker" => :optional
 
   def install
-    virtualenv_install_with_resources
+    # Create virtualenv
+    virtualenv_create(libexec, "python3.12")
+
+    # Install the package with all its dependencies
+    system libexec/"bin/pip", "install", *std_pip_args(prefix: libexec), "."
+
+    # Link binaries
+    bin.install_symlink libexec/"bin/brainbox"
+    bin.install_symlink libexec/"bin/manage-secrets"
   end
 
   test do
