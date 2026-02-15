@@ -51,6 +51,26 @@ export async function fetchHubState() {
   return res.json();
 }
 
+export async function fetchLangfuseHealth() {
+  const res = await fetch('/api/langfuse/health');
+  return res.json();
+}
+
+export async function fetchSessionTraces(sessionName, limit = 50) {
+  const res = await fetch(`/api/langfuse/sessions/${encodeURIComponent(sessionName)}/traces?limit=${limit}`);
+  return res.json();
+}
+
+export async function fetchSessionSummary(sessionName) {
+  const res = await fetch(`/api/langfuse/sessions/${encodeURIComponent(sessionName)}/summary`);
+  return res.json();
+}
+
+export async function fetchTraceDetail(traceId) {
+  const res = await fetch(`/api/langfuse/traces/${encodeURIComponent(traceId)}`);
+  return res.json();
+}
+
 /**
  * Connect to the SSE event stream.
  * Returns the EventSource instance (caller can close it).

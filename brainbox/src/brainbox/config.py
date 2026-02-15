@@ -54,6 +54,36 @@ class ArtifactSettings(BaseSettings):
     region: str = "us-east-1"
 
 
+def _langfuse_env_fallback(field: str, *env_names: str) -> str:
+    """Return the first set env var from the list, or empty string."""
+    import os
+
+    for name in env_names:
+        val = os.environ.get(name)
+        if val:
+            return val
+    return ""
+
+
+def _langfuse_base_url() -> str:
+    return _langfuse_env_fallback("base_url", "LANGFUSE_BASE_URL") or "http://localhost:3000"
+
+
+def _langfuse_public_key() -> str:
+    return _langfuse_env_fallback("public_key", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_API_PUBLIC_KEY")
+
+
+def _langfuse_secret_key() -> str:
+    return _langfuse_env_fallback("secret_key", "LANGFUSE_SECRET_KEY", "LANGFUSE_API_SECRET_KEY")
+
+
+class LangfuseSettings(BaseSettings):
+    mode: Literal["off", "warn", "enforce"] = "warn"
+    base_url: str = Field(default_factory=_langfuse_base_url)
+    public_key: str = Field(default_factory=_langfuse_public_key)
+    secret_key: str = Field(default_factory=_langfuse_secret_key)
+
+
 class ProfileSettings(BaseSettings):
     mount_env: bool = True  # mount the profile .env from volatile cache
     mount_aws: bool = True
@@ -95,6 +125,7 @@ class Settings(BaseSettings):
     hardening: HardeningSettings = Field(default_factory=HardeningSettings)
     cosign: CosignSettings = Field(default_factory=CosignSettings)
     artifact: ArtifactSettings = Field(default_factory=ArtifactSettings)
+    langfuse: LangfuseSettings = Field(default_factory=LangfuseSettings)
     profile: ProfileSettings = Field(default_factory=ProfileSettings)
     hub: HubSettings = Field(default_factory=HubSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)

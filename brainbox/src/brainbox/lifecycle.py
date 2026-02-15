@@ -798,6 +798,20 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
         except Exception as exc:
             slog.warning("container.profile_env_write_failed", metadata={"reason": str(exc)})
 
+    # Inject LANGFUSE_SESSION_ID so traces map back to this container session
+    try:
+        langfuse_line = f"export LANGFUSE_SESSION_ID={ctx.session_name}"
+        await _run(
+            container.exec_run,
+            [
+                "sh",
+                "-c",
+                f"echo '{_shell_escape(langfuse_line)}' >> /home/developer/.env",
+            ],
+        )
+    except Exception as exc:
+        slog.warning("container.langfuse_session_id_failed", metadata={"reason": str(exc)})
+
     ctx.state = SessionState.RUNNING
     slog.info("container.started", metadata={"port": ctx.port, "hardened": ctx.hardened})
     return ctx

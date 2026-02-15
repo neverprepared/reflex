@@ -86,8 +86,9 @@ def send_trace(tool_data: dict) -> None:
         debug_log("Langfuse client obtained")
 
         parsed = parse_tool_data(tool_data)
-        # Use session_id from Claude Code or generate one
-        session_id = parsed.get("session_id") or get_session_id()
+        # Prefer LANGFUSE_SESSION_ID env var (set by containers to the container name),
+        # then fall back to Claude Code's per-session UUID, then generate one
+        session_id = os.environ.get("LANGFUSE_SESSION_ID") or parsed.get("session_id") or get_session_id()
 
         # SDK v3 uses start_as_current_observation with context manager
         # Use propagate_attributes for session_id and user_id

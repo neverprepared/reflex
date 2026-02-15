@@ -1,72 +1,51 @@
 ---
-description: Control LangFuse observability integration
-allowed-tools: Bash(mkdir:*), Bash(rm:*), Bash(cat:*), Bash(echo:*)
-argument-hint: <on|off|status>
+description: Show LangFuse observability status
+allowed-tools: Bash(echo:*), Bash(curl:*)
+argument-hint: [status]
 ---
 
 # LangFuse Integration
 
-Enable or disable LangFuse observability for tool calls and agent interactions.
+Show LangFuse observability status and configuration. Tracing is always active when credentials are present — no toggle needed. The PostToolUse hook exits silently when credentials are missing or LangFuse is unreachable.
 
 ## Instructions
 
-The state file is stored at `$CLAUDE_CONFIG_DIR/reflex/langfuse-enabled` (default: `~/.claude/reflex/langfuse-enabled`).
-
-### Arguments
-
-- `on` - Enable LangFuse integration
-- `off` - Disable LangFuse integration
-- `status` - Show current status and configuration
-
-### on
+### status (or no argument)
 
 ```bash
-CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-mkdir -p "$CLAUDE_DIR/reflex"
-touch "$CLAUDE_DIR/reflex/langfuse-enabled"
-echo "LangFuse integration enabled."
-echo ""
-echo "Ensure these environment variables are set:"
-echo "  LANGFUSE_BASE_URL (default: http://localhost:3000)"
-echo "  LANGFUSE_PUBLIC_KEY"
-echo "  LANGFUSE_SECRET_KEY"
-```
-
-### off
-
-```bash
-CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-rm -f "$CLAUDE_DIR/reflex/langfuse-enabled"
-echo "LangFuse integration disabled."
-```
-
-### status
-
-```bash
-CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-if [ -f "$CLAUDE_DIR/reflex/langfuse-enabled" ]; then
-    echo "**Status:** Enabled"
-else
-    echo "**Status:** Disabled"
-fi
+echo "**LangFuse Observability**"
 echo ""
 echo "**Configuration:**"
 echo "- Host: ${LANGFUSE_BASE_URL:-http://localhost:3000}"
 echo "- Public Key: ${LANGFUSE_PUBLIC_KEY:-<not set>}"
 echo "- Secret Key: ${LANGFUSE_SECRET_KEY:+<set>}${LANGFUSE_SECRET_KEY:-<not set>}"
+echo ""
+if [ -n "${LANGFUSE_PUBLIC_KEY:-}" ] && [ -n "${LANGFUSE_SECRET_KEY:-}" ]; then
+    echo "**Status:** Active (credentials present)"
+    # Check reachability
+    BASE_URL="${LANGFUSE_BASE_URL:-http://localhost:3000}"
+    if curl -sf --max-time 3 "$BASE_URL/api/public/health" > /dev/null 2>&1; then
+        echo "**Connectivity:** Reachable at $BASE_URL"
+    else
+        echo "**Connectivity:** Unreachable at $BASE_URL (traces will be dropped)"
+    fi
+else
+    echo "**Status:** Inactive (missing credentials)"
+    echo ""
+    echo "Set these environment variables to enable tracing:"
+    echo "  LANGFUSE_PUBLIC_KEY"
+    echo "  LANGFUSE_SECRET_KEY"
+    echo "  LANGFUSE_BASE_URL (optional, defaults to http://localhost:3000)"
+fi
 ```
 
-### No argument or invalid
+### Invalid argument
 
-If no argument or invalid argument provided, show usage:
+If an invalid argument is provided, show usage:
 
 ```
-Usage: /reflex:langfuse <on|off|status>
+Usage: /reflex:langfuse [status]
 
-Control LangFuse observability integration.
-
-Commands:
-  on      Enable LangFuse tracing for tool calls
-  off     Disable LangFuse tracing (default)
-  status  Show current status and configuration
+Show LangFuse observability status and configuration.
+Tracing is always active when credentials are present.
 ```

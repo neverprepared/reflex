@@ -3,6 +3,7 @@
   import Sidebar from './Sidebar.svelte';
   import ContainersPanel from './ContainersPanel.svelte';
   import DashboardPanel from './DashboardPanel.svelte';
+  import ObservabilityPanel from './ObservabilityPanel.svelte';
 </script>
 
 <div class="shell">
@@ -12,6 +13,8 @@
       <ContainersPanel />
     {:else if currentPanel.value === 'dashboard'}
       <DashboardPanel />
+    {:else if currentPanel.value === 'observability'}
+      <ObservabilityPanel />
     {/if}
   </main>
 </div>

@@ -115,7 +115,7 @@ plugins/reflex/
 | `/reflex:notify` | macOS popup notifications (on/off/status/test) |
 | `/reflex:speak` | Spoken notifications (on/off/status/test) |
 | `/reflex:qdrant` | Control Qdrant MCP connection (on/off/status) |
-| `/reflex:langfuse` | Control LangFuse observability (on/off/status) |
+| `/reflex:langfuse` | Show LangFuse observability status |
 | `/reflex:guardrail` | Control destructive operation guardrails (on/off/status) |
 | `/reflex:ingest` | Ingest files into Qdrant |
 | `/reflex:update-mcp` | Check/apply MCP package updates |
@@ -197,13 +197,11 @@ If the rebase has conflicts, stop and inform the user. Do NOT resolve conflicts 
 
 ## LangFuse Observability
 
-Reflex includes optional LangFuse integration for tracing tool calls and agent interactions.
+Reflex includes LangFuse integration for tracing tool calls and agent interactions. Tracing is always active when credentials are present — no toggle needed. The PostToolUse hook exits silently when credentials are missing or LangFuse is unreachable.
 
-**Enable/Disable:**
+**Check status:**
 ```bash
-/reflex:langfuse on      # Enable tracing
-/reflex:langfuse off     # Disable tracing (default)
-/reflex:langfuse status  # Show current status
+/reflex:langfuse status  # Show configuration and connectivity
 ```
 
 **Required environment variables:**
@@ -212,8 +210,6 @@ export LANGFUSE_BASE_URL="http://localhost:3000"  # Optional, defaults to localh
 export LANGFUSE_PUBLIC_KEY="pk-..."
 export LANGFUSE_SECRET_KEY="sk-..."
 ```
-
-When enabled, tool calls are automatically traced to LangFuse via the PostToolUse hook.
 
 ## Installation
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -45,6 +46,13 @@ from .artifacts import (
     health_check as artifact_health_check,
     list_artifacts,
     upload_artifact,
+)
+from .langfuse_client import (
+    LangfuseError,
+    health_check as langfuse_health_check,
+    get_session_traces_summary,
+    get_trace as langfuse_get_trace,
+    list_traces as langfuse_list_traces,
 )
 from .messages import get_message_log, get_messages, route as route_message
 
@@ -405,8 +413,31 @@ async def api_exec_session(name: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Container metrics
+# Container metrics (with LangFuse trace count cache)
 # ---------------------------------------------------------------------------
+
+_trace_cache: dict[str, dict[str, Any]] = {}  # session_name -> {data, ts}
+_TRACE_CACHE_TTL = 10  # seconds
+
+
+def _get_trace_counts(session_name: str) -> dict[str, int]:
+    """Get trace/error counts for a session, cached for 10s."""
+    now = time.monotonic()
+    cached = _trace_cache.get(session_name)
+    if cached and (now - cached["ts"]) < _TRACE_CACHE_TTL:
+        return cached["data"]
+
+    if settings.langfuse.mode == "off":
+        return {"trace_count": 0, "error_count": 0}
+
+    try:
+        summary = get_session_traces_summary(session_name)
+        data = {"trace_count": summary.total_traces, "error_count": summary.error_count}
+    except Exception:
+        data = {"trace_count": 0, "error_count": 0}
+
+    _trace_cache[session_name] = {"data": data, "ts": now}
+    return data
 
 
 def _get_container_metrics() -> list[dict[str, Any]]:
@@ -434,10 +465,12 @@ def _get_container_metrics() -> list[dict[str, Any]]:
                         pass
 
                 labels = c.labels or {}
+                session_name = _extract_session_name(c.name)
+                trace_counts = _get_trace_counts(session_name)
                 results.append(
                     {
                         "name": c.name,
-                        "session_name": _extract_session_name(c.name),
+                        "session_name": session_name,
                         "role": _extract_role(c),
                         "llm_provider": labels.get("brainbox.llm_provider", "claude"),
                         "workspace_profile": labels.get("brainbox.workspace_profile", ""),
@@ -447,6 +480,8 @@ def _get_container_metrics() -> list[dict[str, Any]]:
                         "mem_limit": mem_limit,
                         "mem_limit_human": _human_bytes(mem_limit),
                         "uptime_seconds": round(uptime_seconds),
+                        "trace_count": trace_counts["trace_count"],
+                        "error_count": trace_counts["error_count"],
                     }
                 )
             except Exception:
@@ -662,6 +697,116 @@ async def api_delete_artifact(key: str):
     """Delete an artifact by key."""
     await _artifact_op(delete_artifact, key)
     return {"deleted": True, "key": key}
+
+
+# ---------------------------------------------------------------------------
+# LangFuse observability proxy
+# ---------------------------------------------------------------------------
+
+
+async def _langfuse_op(operation_fn, *args, **kwargs):
+    """Run a LangFuse operation respecting the configured mode."""
+    mode = settings.langfuse.mode
+    if mode == "off":
+        raise HTTPException(status_code=503, detail="LangFuse integration is disabled")
+    try:
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, lambda: operation_fn(*args, **kwargs))
+    except LangfuseError as exc:
+        if mode == "enforce":
+            raise HTTPException(status_code=502, detail=str(exc))
+        log.warning("langfuse.operation_failed", metadata={"error": str(exc)})
+        return None
+    except Exception as exc:
+        if mode == "enforce":
+            raise HTTPException(status_code=502, detail=str(exc))
+        log.warning("langfuse.operation_failed", metadata={"error": str(exc)})
+        return None
+
+
+@app.get("/api/langfuse/health")
+async def api_langfuse_health():
+    """Check LangFuse connectivity."""
+    mode = settings.langfuse.mode
+    if mode == "off":
+        return {"healthy": False, "mode": "off", "detail": "LangFuse integration is disabled"}
+    loop = asyncio.get_running_loop()
+    healthy = await loop.run_in_executor(None, langfuse_health_check)
+    return {"healthy": healthy, "mode": mode}
+
+
+@app.get("/api/langfuse/sessions/{session_name}/traces")
+async def api_langfuse_session_traces(session_name: str, limit: int = Query(default=50)):
+    """List traces for a container session."""
+    result = await _langfuse_op(langfuse_list_traces, session_name, limit)
+    if result is None:
+        return []
+    return [
+        {
+            "id": t.id,
+            "name": t.name,
+            "session_id": t.session_id,
+            "timestamp": t.timestamp,
+            "status": t.status,
+            "input": t.input,
+            "output": t.output,
+        }
+        for t in result
+    ]
+
+
+@app.get("/api/langfuse/sessions/{session_name}/summary")
+async def api_langfuse_session_summary(session_name: str):
+    """Trace count, error count, and tool breakdown for a session."""
+    result = await _langfuse_op(get_session_traces_summary, session_name)
+    if result is None:
+        return {
+            "session_id": session_name,
+            "total_traces": 0,
+            "total_observations": 0,
+            "error_count": 0,
+            "tool_counts": {},
+        }
+    return {
+        "session_id": result.session_id,
+        "total_traces": result.total_traces,
+        "total_observations": result.total_observations,
+        "error_count": result.error_count,
+        "tool_counts": result.tool_counts,
+    }
+
+
+@app.get("/api/langfuse/traces/{trace_id}")
+async def api_langfuse_trace_detail(trace_id: str):
+    """Single trace detail with observations."""
+    result = await _langfuse_op(langfuse_get_trace, trace_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Trace not available")
+    trace, observations = result
+    return {
+        "trace": {
+            "id": trace.id,
+            "name": trace.name,
+            "session_id": trace.session_id,
+            "timestamp": trace.timestamp,
+            "status": trace.status,
+            "input": trace.input,
+            "output": trace.output,
+        },
+        "observations": [
+            {
+                "id": o.id,
+                "trace_id": o.trace_id,
+                "name": o.name,
+                "type": o.type,
+                "start_time": o.start_time,
+                "end_time": o.end_time,
+                "status": o.status,
+                "level": o.level,
+            }
+            for o in observations
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

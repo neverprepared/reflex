@@ -10,6 +10,10 @@ COPY --chown=developer:developer docker/brainbox/setup/CLAUDE.md /home/developer
 COPY --chown=developer:developer docker/brainbox/setup/settings.json /home/developer/.claude/settings.json
 COPY --chown=developer:developer docker/brainbox/setup/network-guardrail.py /home/developer/.claude/hooks/network-guardrail.py
 
+# LangFuse observability hook (traces tool calls when credentials are present)
+COPY --chown=developer:developer reflex/plugins/reflex/scripts/langfuse-hook.sh /home/developer/.claude/hooks/langfuse-hook.sh
+COPY --chown=developer:developer reflex/plugins/reflex/scripts/langfuse-trace.py /home/developer/.claude/hooks/langfuse-trace.py
+
 # Skills — Infrastructure / Cloud
 COPY --chown=developer:developer reflex/plugins/reflex/skills/aws-patterns/SKILL.md /home/developer/.claude/skills/aws-patterns/SKILL.md
 COPY --chown=developer:developer reflex/plugins/reflex/skills/azure-resource-discovery/SKILL.md /home/developer/.claude/skills/azure-resource-discovery/SKILL.md
