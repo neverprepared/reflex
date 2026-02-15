@@ -14,8 +14,10 @@ class Brainbox < Formula
     # Create virtualenv
     virtualenv_create(libexec, "python3.12")
 
-    # Install the package with all its dependencies
-    system libexec/"bin/pip", "install", *std_pip_args(prefix: libexec), "."
+    # Install the package with all its dependencies from pyproject.toml
+    # Note: Not using std_pip_args because it includes --no-deps
+    system libexec/"bin/pip", "install", "--prefix=#{libexec}",
+           "--no-compile", "--ignore-installed", "."
 
     # Link binaries
     bin.install_symlink libexec/"bin/brainbox"
