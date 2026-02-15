@@ -135,45 +135,40 @@ plugins/reflex/
 
 Most agent functionality is provided by official plugins (testing-suite, security-pro, documentation-generator, developer-essentials) and Reflex skills.
 
-## Web Search Storage
+## Web Search Integration
 
-**IMPORTANT:** After every WebSearch, store valuable results in Qdrant with rich metadata:
+**Auto-Storage**: WebSearch results are automatically stored in Qdrant when available. This builds a persistent knowledge base over time.
 
+**Auto-Retrieve Workflow**:
+
+1. **Check Qdrant First**: Before using WebSearch, check if the answer exists in stored knowledge:
+   ```
+   Tool: qdrant-find
+   Query: "<user's question>"
+   ```
+
+2. **Evaluate Freshness**: If results found, check `harvested_at` metadata:
+   - Recent (< 1 week): Use directly
+   - Older (1 week - 1 month): Supplement with fresh search
+   - Stale (> 1 month): Prefer fresh search, update storage
+
+3. **Search When Needed**: If stored knowledge is insufficient or user explicitly requests "current/latest/fresh" information:
+   ```
+   Tool: WebSearch
+   Query: "<refined query>"
+   ```
+
+4. **Auto-Storage**: Results are automatically stored with rich metadata (no manual action needed)
+
+**Skip Qdrant Check When**:
+- User explicitly asks for "latest", "current", "fresh", "today's" information
+- Query is time-sensitive (news, prices, weather, events)
+- User says "search the web" or similar explicit directive
+
+**Disable Auto-Storage** (if needed):
+```bash
+export REFLEX_QDRANT_AUTOSAVE=false
 ```
-Tool: qdrant-store
-Information: "<synthesized summary with key findings>"
-Metadata:
-  # Required
-  source: "web_search"
-  content_type: "text"           # text, code, image, diagram
-  harvested_at: "<ISO 8601>"
-
-  # Search context
-  query: "<original query>"
-  urls: ["url1", "url2"]
-  domain: "<primary domain>"
-
-  # Classification (for filtering)
-  category: "<technology|business|science|design|security|devops>"
-  subcategory: "<databases|frontend|ml|networking|...>"
-  type: "<documentation|tutorial|troubleshooting|reference|comparison>"
-
-  # Technical (when applicable)
-  language: "<python|typescript|rust|go|...>"
-  framework: "<framework name>"
-
-  # Quality
-  confidence: "<high|medium|low>"
-  freshness: "<current|recent|dated>"
-
-  # Relationships
-  related_topics: ["topic1", "topic2"]
-  project: "<project name or null>"
-```
-
-**Images:** Store URL references only (no download). Use `content_type: "image"`, `image_url`, `image_type`
-
-**Skip storing:** Trivial lookups, ephemeral info, duplicates
 
 ## Git Commits
 

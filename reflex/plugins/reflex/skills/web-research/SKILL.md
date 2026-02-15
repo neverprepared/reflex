@@ -38,7 +38,9 @@ Query: "<refined search query>"
 
 ## Step 3: Store Results
 
-After getting valuable results, store with rich metadata:
+**Auto-Storage**: When Qdrant is available, WebSearch results are automatically stored with rich metadata. No manual action needed.
+
+**Manual Storage** (for custom synthesis or additional context):
 
 ```
 Tool: qdrant-store

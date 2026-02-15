@@ -15,6 +15,10 @@ COPY --chown=developer:developer docker/brainbox/setup/network-guardrail.py /hom
 COPY --chown=developer:developer reflex/plugins/reflex/scripts/langfuse-hook.sh /home/developer/.claude/hooks/langfuse-hook.sh
 COPY --chown=developer:developer reflex/plugins/reflex/scripts/langfuse-trace.py /home/developer/.claude/hooks/langfuse-trace.py
 
+# Qdrant WebSearch auto-storage hook (stores search results in vector DB)
+COPY --chown=developer:developer reflex/plugins/reflex/scripts/qdrant-websearch-hook.sh /home/developer/.claude/hooks/qdrant-websearch-hook.sh
+COPY --chown=developer:developer reflex/plugins/reflex/scripts/qdrant-websearch-store.py /home/developer/.claude/hooks/qdrant-websearch-store.py
+
 # Skills — Research + RAG + Harvesting
 COPY --chown=developer:developer reflex/plugins/reflex/skills/qdrant-patterns/SKILL.md /home/developer/.claude/skills/qdrant-patterns/SKILL.md
 COPY --chown=developer:developer reflex/plugins/reflex/skills/analysis-patterns/SKILL.md /home/developer/.claude/skills/analysis-patterns/SKILL.md
