@@ -164,9 +164,7 @@ def validate_port(port: int) -> int:
         raise ValidationError(f"Port must be an integer, got {type(port).__name__}")
 
     if not 1024 <= port <= 65535:
-        raise ValidationError(
-            f"Port {port} out of range (must be 1024-65535 for non-root)"
-        )
+        raise ValidationError(f"Port {port} out of range (must be 1024-65535 for non-root)")
 
     return port
 

@@ -73,7 +73,10 @@ async def query(request: QueryRequest) -> QueryResponse:
 
     # Check if tmux session exists
     session_check = await asyncio.create_subprocess_exec(
-        "tmux", "has-session", "-t", "main",
+        "tmux",
+        "has-session",
+        "-t",
+        "main",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -88,7 +91,11 @@ async def query(request: QueryRequest) -> QueryResponse:
     try:
         # Clear any existing input in the prompt
         await asyncio.create_subprocess_exec(
-            "tmux", "send-keys", "-t", "main", "C-c",
+            "tmux",
+            "send-keys",
+            "-t",
+            "main",
+            "C-c",
         )
         await asyncio.sleep(0.5)
 
@@ -96,13 +103,22 @@ async def query(request: QueryRequest) -> QueryResponse:
         if request.working_dir:
             cd_cmd = f"cd {request.working_dir}"
             await asyncio.create_subprocess_exec(
-                "tmux", "send-keys", "-t", "main", cd_cmd, "Enter",
+                "tmux",
+                "send-keys",
+                "-t",
+                "main",
+                cd_cmd,
+                "Enter",
             )
             await asyncio.sleep(0.5)
 
         # Capture pane before sending prompt (to compare later)
         before_process = await asyncio.create_subprocess_exec(
-            "tmux", "capture-pane", "-t", "main", "-p",
+            "tmux",
+            "capture-pane",
+            "-t",
+            "main",
+            "-p",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -111,7 +127,12 @@ async def query(request: QueryRequest) -> QueryResponse:
 
         # Send prompt to tmux session
         await asyncio.create_subprocess_exec(
-            "tmux", "send-keys", "-t", "main", request.prompt, "Enter",
+            "tmux",
+            "send-keys",
+            "-t",
+            "main",
+            request.prompt,
+            "Enter",
         )
 
         # Wait for Claude to process - detect when output stops changing
@@ -127,7 +148,11 @@ async def query(request: QueryRequest) -> QueryResponse:
 
             # Capture current pane content
             capture_process = await asyncio.create_subprocess_exec(
-                "tmux", "capture-pane", "-t", "main", "-p",
+                "tmux",
+                "capture-pane",
+                "-t",
+                "main",
+                "-p",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -155,7 +180,13 @@ async def query(request: QueryRequest) -> QueryResponse:
 
         # Capture final output
         final_process = await asyncio.create_subprocess_exec(
-            "tmux", "capture-pane", "-t", "main", "-p", "-S", "-100",
+            "tmux",
+            "capture-pane",
+            "-t",
+            "main",
+            "-p",
+            "-S",
+            "-100",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -200,9 +231,7 @@ async def query(request: QueryRequest) -> QueryResponse:
 def _check_claude_available() -> bool:
     """Check if Claude CLI is available."""
     try:
-        result = subprocess.run(
-            ["which", "claude"], capture_output=True, text=True, timeout=5
-        )
+        result = subprocess.run(["which", "claude"], capture_output=True, text=True, timeout=5)
         return result.returncode == 0
     except Exception:
         return False

@@ -717,7 +717,7 @@ async def start(ctx_or_name: SessionContext | str) -> SessionContext:
                 [
                     "sh",
                     "-c",
-                    f"echo {shlex.quote(patch_json)} | python3 -c \""
+                    f'echo {shlex.quote(patch_json)} | python3 -c "'
                     "import json, pathlib, sys; "
                     "p = pathlib.Path('/home/developer/.claude.json'); "
                     "d = json.loads(p.read_text()) if p.exists() else {}; "
