@@ -114,7 +114,7 @@ plugins/reflex/
 | `/reflex:certcollect` | Collect SSL certificates |
 | `/reflex:notify` | macOS popup notifications (on/off/status/test) |
 | `/reflex:speak` | Spoken notifications (on/off/status/test) |
-| `/reflex:qdrant` | Control Qdrant MCP connection (on/off/status) |
+| `/reflex:qdrant` | Show Qdrant connection status |
 | `/reflex:langfuse` | Show LangFuse observability status |
 | `/reflex:guardrail` | Control destructive operation guardrails (on/off/status) |
 | `/reflex:ingest` | Ingest files into Qdrant |
