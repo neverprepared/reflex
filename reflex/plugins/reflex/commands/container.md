@@ -119,6 +119,8 @@ fi
 
 Create a new sandboxed container. Auto-detects the caller's workspace profile and home from environment variables (`WORKSPACE_PROFILE`, `WORKSPACE_HOME`). An optional name can be provided as an argument; defaults to the profile name.
 
+Supports additional volume mounts via `--mount` flags.
+
 ```bash
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 URL_FILE="${CLAUDE_DIR}/reflex/.brainbox-url"
@@ -132,15 +134,30 @@ fi
 URL=$(cat "$URL_FILE")
 PROFILE="${WORKSPACE_PROFILE:-}"
 WS_HOME="${WORKSPACE_HOME:-}"
-# NAME is the argument after "create", or falls back to the profile name
-NAME="${ARG:-${PROFILE:-default}}"
 
+# Parse arguments: name (first non-flag) and --mount flags
+# Extract name (first non-flag argument)
+NAME=$(echo "$ARG" | sed -E 's/^([^ ]*).*/\1/' | grep -v '^--' || echo "")
+if [ -z "$NAME" ] || echo "$NAME" | grep -q '^--'; then
+  NAME="${PROFILE:-default}"
+fi
+
+# Extract all --mount arguments and build JSON array
+VOLUMES=$(echo "$ARG" | grep -oE -- '--mount [^ ]+' | sed 's/--mount //' | jq -R . | jq -s -c . || echo "[]")
+if [ "$VOLUMES" = "[]" ] || [ -z "$VOLUMES" ]; then
+  VOLUMES=""
+fi
+
+# Build JSON payload
 PAYLOAD="{\"name\":\"${NAME}\",\"role\":\"developer\""
 if [ -n "$PROFILE" ]; then
   PAYLOAD="${PAYLOAD},\"workspace_profile\":\"${PROFILE}\""
 fi
 if [ -n "$WS_HOME" ]; then
   PAYLOAD="${PAYLOAD},\"workspace_home\":\"${WS_HOME}\""
+fi
+if [ -n "$VOLUMES" ] && [ "$VOLUMES" != "[]" ]; then
+  PAYLOAD="${PAYLOAD},\"volumes\":${VOLUMES}"
 fi
 PAYLOAD="${PAYLOAD}}"
 
@@ -151,7 +168,23 @@ RESULT=$(curl -sf -X POST "${URL}/api/create" \
 echo "$RESULT"
 ```
 
-Parse the `$ARG` from the user's argument (text after `create`). Show the result: on success report the container URL and detected profile. On failure show the error.
+Parse the `$ARG` from the user's argument:
+- First non-flag argument is the container name (defaults to profile name if not provided)
+- `--mount /host/path:/container/path[:mode]` — Additional volume mounts (can be specified multiple times)
+
+Show the result: on success report the container URL and detected profile. On failure show the error.
+
+**Examples:**
+```bash
+# Create with auto-detected profile name
+/reflex:container create
+
+# Create with custom name
+/reflex:container create myproject
+
+# Create with additional volume mounts
+/reflex:container create myproject --mount /data:/workspace/data:ro --mount /configs:/workspace/.config:rw
+```
 
 ### `/reflex:container config`
 
@@ -219,6 +252,7 @@ Commands:
   stop       Stop a locally auto-started API
   status     Show connection info and running containers
   create     Create a container (auto-detects profile from env)
+             Syntax: create [name] [--mount /host:/container[:mode]] ...
   dashboard  Open the dashboard in browser
   config     Show/set configuration (url, autostart)
 
@@ -233,6 +267,8 @@ Examples:
   /reflex:container start
   /reflex:container create
   /reflex:container create myproject
+  /reflex:container create myproject --mount /data:/workspace/data:ro
+  /reflex:container create --mount /local/src:/workspace/src:rw
   /reflex:container status
   /reflex:container config url=http://remote:8080
   /reflex:container config autostart=false

@@ -361,7 +361,15 @@ async def api_create_session(request: Request):
     body = await request.json()
     name = body.get("name")
     role = body.get("role")
-    volume = body.get("volume")
+    # Support both new "volumes" (list) and legacy "volume" (string) for backward compatibility
+    volumes = body.get("volumes")
+    if volumes is None:
+        # Fall back to legacy single volume parameter
+        volume = body.get("volume")
+        volumes = [volume] if volume else []
+    elif not isinstance(volumes, list):
+        # Normalize single string to list
+        volumes = [volumes] if volumes else []
     llm_provider = body.get("llm_provider", "claude")
     llm_model = body.get("llm_model") or None
     ollama_host = body.get("ollama_host") or None
@@ -372,7 +380,7 @@ async def api_create_session(request: Request):
             session_name=name or "default",
             role=role,
             hardened=False,
-            volume_mounts=[volume] if volume else [],
+            volume_mounts=volumes,
             llm_provider=llm_provider,
             llm_model=llm_model,
             ollama_host=ollama_host,
