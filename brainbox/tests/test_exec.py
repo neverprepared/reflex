@@ -75,7 +75,7 @@ class TestExecEndpoint:
             "/api/sessions/test-1/exec",
             json={},
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422  # Pydantic validation error
 
     @pytest.mark.asyncio
     async def test_empty_command(self, client):
@@ -83,7 +83,7 @@ class TestExecEndpoint:
             "/api/sessions/test-1/exec",
             json={"command": "   "},
         )
-        assert resp.status_code == 400
+        assert resp.status_code == 422  # Pydantic validation error
 
     @pytest.mark.asyncio
     async def test_container_name_uses_prefix(self, client):

@@ -7,6 +7,13 @@
   let traces = $state([]);
   let timer = null;
 
+  // Virtual scrolling state
+  let scrollContainer = $state(null);
+  let scrollTop = $state(0);
+  let containerHeight = $state(400);
+  const ITEM_HEIGHT = 36; // Approximate height per trace row
+  const BUFFER = 5; // Extra items to render above/below viewport
+
   async function refresh() {
     try {
       if (selectedSession) {
@@ -46,6 +53,37 @@
   }
 
   let expandedId = $state(null);
+
+  // Virtual scrolling calculations
+  $effect(() => {
+    if (scrollContainer) {
+      containerHeight = scrollContainer.clientHeight;
+    }
+  });
+
+  let visibleTraces = $derived.by(() => {
+    if (traces.length <= 50) {
+      // No need for virtual scrolling if we have 50 or fewer items
+      return { items: traces, startIndex: 0, offsetY: 0, totalHeight: traces.length * ITEM_HEIGHT };
+    }
+
+    const startIndex = Math.max(0, Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER);
+    const endIndex = Math.min(
+      traces.length,
+      Math.ceil((scrollTop + containerHeight) / ITEM_HEIGHT) + BUFFER
+    );
+
+    return {
+      items: traces.slice(startIndex, endIndex),
+      startIndex,
+      offsetY: startIndex * ITEM_HEIGHT,
+      totalHeight: traces.length * ITEM_HEIGHT
+    };
+  });
+
+  function handleScroll(e) {
+    scrollTop = e.target.scrollTop;
+  }
 </script>
 
 <div class="timeline-section">
@@ -53,21 +91,25 @@
   {#if traces.length === 0}
     <p class="empty">No traces recorded</p>
   {:else}
-    <div class="trace-list">
-      {#each traces as t (t.id)}
-        <button class="trace-row" class:expanded={expandedId === t.id} onclick={() => expandedId = expandedId === t.id ? null : t.id}>
-          <span class="trace-time">{formatTime(t.timestamp)}</span>
-          <span class="session-badge">{t.session_id}</span>
-          <span class="trace-name">{t.name || 'trace'}</span>
-          <span class="status-dot" class:error={t.status === 'error'} class:ok={t.status === 'ok'}></span>
-        </button>
-        {#if expandedId === t.id}
-          <div class="trace-detail">
-            {#if t.input}<div class="detail-block"><span class="detail-label">Input</span><pre>{t.input}</pre></div>{/if}
-            {#if t.output}<div class="detail-block"><span class="detail-label">Output</span><pre>{t.output}</pre></div>{/if}
-          </div>
-        {/if}
-      {/each}
+    <div class="trace-list" bind:this={scrollContainer} onscroll={handleScroll}>
+      <div style="height: {visibleTraces.totalHeight}px; position: relative;">
+        <div style="transform: translateY({visibleTraces.offsetY}px);">
+          {#each visibleTraces.items as t (t.id)}
+            <button class="trace-row" class:expanded={expandedId === t.id} onclick={() => expandedId = expandedId === t.id ? null : t.id}>
+              <span class="trace-time">{formatTime(t.timestamp)}</span>
+              <span class="session-badge">{t.session_id}</span>
+              <span class="trace-name">{t.name || 'trace'}</span>
+              <span class="status-dot" class:error={t.status === 'error'} class:ok={t.status === 'ok'}></span>
+            </button>
+            {#if expandedId === t.id}
+              <div class="trace-detail">
+                {#if t.input}<div class="detail-block"><span class="detail-label">Input</span><pre>{t.input}</pre></div>{/if}
+                {#if t.output}<div class="detail-block"><span class="detail-label">Output</span><pre>{t.output}</pre></div>{/if}
+              </div>
+            {/if}
+          {/each}
+        </div>
+      </div>
     </div>
   {/if}
 </div>
@@ -87,7 +129,7 @@
     letter-spacing: 0.05em;
     margin-bottom: 16px;
   }
-  .empty { color: #475569; font-size: 14px; }
+  .empty { color: #64748b; font-size: 14px; }
   .trace-list {
     display: flex;
     flex-direction: column;

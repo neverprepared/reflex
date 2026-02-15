@@ -2,22 +2,22 @@
   import { notifications } from './notifications.svelte.js';
 </script>
 
-<div class="notifications-container">
+<div class="notifications-container" aria-live="polite" aria-atomic="false">
   {#each notifications.value as notification (notification.id)}
     <div
       class="notification"
       data-type={notification.type}
-      onclick={() => notifications.dismiss(notification.id)}
       role="alert"
+      aria-label={`${notification.type} notification: ${notification.message}`}
     >
-      <span class="icon">
+      <span class="icon" aria-hidden="true">
         {#if notification.type === 'success'}✓{/if}
         {#if notification.type === 'error'}✗{/if}
         {#if notification.type === 'warning'}⚠{/if}
         {#if notification.type === 'info'}ℹ{/if}
       </span>
       <span class="message">{notification.message}</span>
-      <button class="close" onclick={() => notifications.dismiss(notification.id)}>×</button>
+      <button class="close" onclick={() => notifications.dismiss(notification.id)} aria-label="Close notification">×</button>
     </div>
   {/each}
 </div>
@@ -25,48 +25,42 @@
 <style>
   .notifications-container {
     position: fixed;
-    top: 20px;
-    right: 20px;
+    top: var(--spacing-xl);
+    right: var(--spacing-xl);
     z-index: 9999;
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--spacing-md);
     max-width: 400px;
   }
 
   .notification {
     display: flex;
     align-items: center;
-    gap: 12px;
-    padding: 12px 16px;
-    border-radius: 6px;
-    background: #1e293b;
-    border: 1px solid #334155;
+    gap: var(--spacing-md);
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border-secondary);
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    cursor: pointer;
     transition: all 0.2s ease;
     animation: slideIn 0.3s ease;
   }
 
-  .notification:hover {
-    transform: translateX(-4px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
-  }
-
   .notification[data-type="success"] {
-    border-left: 4px solid #10b981;
+    border-left: 4px solid var(--color-success);
   }
 
   .notification[data-type="error"] {
-    border-left: 4px solid #ef4444;
+    border-left: 4px solid var(--color-error);
   }
 
   .notification[data-type="warning"] {
-    border-left: 4px solid #f59e0b;
+    border-left: 4px solid var(--color-warning);
   }
 
   .notification[data-type="info"] {
-    border-left: 4px solid #3b82f6;
+    border-left: 4px solid var(--color-info);
   }
 
   .icon {
@@ -76,24 +70,24 @@
   }
 
   .notification[data-type="success"] .icon {
-    color: #10b981;
+    color: var(--color-success);
   }
 
   .notification[data-type="error"] .icon {
-    color: #ef4444;
+    color: var(--color-error);
   }
 
   .notification[data-type="warning"] .icon {
-    color: #f59e0b;
+    color: var(--color-warning);
   }
 
   .notification[data-type="info"] .icon {
-    color: #3b82f6;
+    color: var(--color-info);
   }
 
   .message {
     flex: 1;
-    color: #e2e8f0;
+    color: var(--color-text-primary);
     font-size: 14px;
     line-height: 1.5;
   }
@@ -101,7 +95,7 @@
   .close {
     background: none;
     border: none;
-    color: #94a3b8;
+    color: var(--color-text-secondary);
     font-size: 24px;
     line-height: 1;
     cursor: pointer;
@@ -111,14 +105,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px;
+    border-radius: var(--radius-md);
     transition: all 0.2s ease;
     flex-shrink: 0;
   }
 
   .close:hover {
     background: rgba(148, 163, 184, 0.1);
-    color: #e2e8f0;
+    color: var(--color-text-primary);
   }
 
   @keyframes slideIn {

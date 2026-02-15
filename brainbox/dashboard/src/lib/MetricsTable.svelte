@@ -1,9 +1,11 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { fetchContainerMetrics } from './api.js';
+  import Badge from './Badge.svelte';
 
   let metrics = $state([]);
   let timer = null;
+  let abortController = null;
 
   function formatUptime(seconds) {
     if (seconds < 60) return `${seconds}s`;
@@ -18,9 +20,21 @@
   }
 
   async function poll() {
+    // Cancel previous request if still in flight
+    if (abortController) {
+      abortController.abort();
+    }
+
+    abortController = new AbortController();
+
     try {
-      metrics = await fetchContainerMetrics();
-    } catch { /* noop */ }
+      metrics = await fetchContainerMetrics(abortController.signal);
+    } catch (err) {
+      // Ignore AbortError - it's expected when cancelling requests
+      if (err.name !== 'AbortError') {
+        console.error('Failed to fetch container metrics:', err);
+      }
+    }
   }
 
   onMount(() => {
@@ -30,6 +44,7 @@
 
   onDestroy(() => {
     if (timer) clearInterval(timer);
+    if (abortController) abortController.abort();
   });
 </script>
 
@@ -56,9 +71,9 @@
         {#each metrics as m (m.name)}
           <tr>
             <td class="name">{m.session_name || m.name}</td>
-            <td class="role-cell"><span class="role-badge" data-role={m.role || 'developer'}>{m.role || 'developer'}</span></td>
-            <td class="profile-cell">{#if m.workspace_profile}<span class="profile-badge">{m.workspace_profile.toUpperCase()}</span>{:else}<span class="empty-cell">—</span>{/if}</td>
-            <td class="llm-cell"><span class="llm-badge" data-visibility={m.llm_provider === 'ollama' ? 'private' : 'public'}>{m.llm_provider === 'ollama' ? 'private' : 'public'}</span></td>
+            <td class="role-cell"><Badge type="role" variant={m.role || 'developer'} text={m.role || 'developer'} /></td>
+            <td class="profile-cell">{#if m.workspace_profile}<Badge type="profile" variant="workspace" text={m.workspace_profile.toUpperCase()} />{:else}<span class="empty-cell">—</span>{/if}</td>
+            <td class="llm-cell"><Badge type="provider" variant={m.llm_provider === 'ollama' ? 'private' : 'public'} text={m.llm_provider === 'ollama' ? 'private' : 'public'} /></td>
             <td class="num">{m.cpu_percent.toFixed(1)}%</td>
             <td class="num">{m.mem_usage_human} / {m.mem_limit_human}</td>
             <td class="num">{formatUptime(m.uptime_seconds)}</td>
@@ -73,21 +88,21 @@
 
 <style>
   .metrics-section {
-    background: #111827;
-    border: 1px solid #1e293b;
-    border-radius: 8px;
-    padding: 20px;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-xl);
   }
   h3 {
     font-size: 14px;
     font-weight: 600;
-    color: #94a3b8;
+    color: var(--color-text-secondary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    margin-bottom: 16px;
+    margin-bottom: var(--spacing-lg);
   }
   .empty {
-    color: #475569;
+    color: var(--color-text-tertiary);
     font-size: 14px;
   }
   .metrics-table {
@@ -97,62 +112,29 @@
   th {
     text-align: left;
     font-size: 11px;
-    color: #475569;
+    color: var(--color-text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    padding: 8px 12px;
-    border-bottom: 1px solid #1e293b;
+    padding: var(--spacing-sm) var(--spacing-md);
+    border-bottom: 1px solid var(--color-border-primary);
   }
   td {
-    padding: 10px 12px;
+    padding: 10px var(--spacing-md);
     font-size: 14px;
     border-bottom: 1px solid rgba(30, 41, 59, 0.5);
   }
   .name {
-    color: #e2e8f0;
+    color: var(--color-text-primary);
     font-weight: 500;
   }
   .num {
-    color: #94a3b8;
+    color: var(--color-text-secondary);
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
     font-size: 13px;
   }
-  .role-cell { padding: 10px 12px; }
-  .role-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-weight: 600;
-  }
-  .role-badge[data-role="developer"] { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
-  .role-badge[data-role="researcher"] { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
-  .role-badge[data-role="performer"] { background: rgba(249, 115, 22, 0.15); color: #f97316; }
-  .llm-cell { padding: 10px 12px; }
-  .llm-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-    font-weight: 500;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  }
-  .llm-badge[data-visibility="public"] { background: rgba(236, 72, 153, 0.15); color: #ec4899; }
-  .llm-badge[data-visibility="private"] { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-  .profile-cell { padding: 10px 12px; }
-  .profile-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: lowercase;
-    letter-spacing: 0.02em;
-    font-weight: 500;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-    background: rgba(245, 158, 11, 0.15);
-    color: #f59e0b;
-  }
+  .role-cell { padding: 10px var(--spacing-md); }
+  .llm-cell { padding: 10px var(--spacing-md); }
+  .profile-cell { padding: 10px var(--spacing-md); }
   .empty-cell { color: #374151; }
-  .error-count { color: #ef4444; font-weight: 600; }
+  .error-count { color: var(--color-error); font-weight: 600; }
 </style>

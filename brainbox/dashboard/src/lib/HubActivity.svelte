@@ -115,7 +115,7 @@
   .hub-stat-value.completed { color: #10b981; }
   .hub-stat-label {
     font-size: 11px;
-    color: #475569;
+    color: #64748b;
     text-transform: uppercase;
     letter-spacing: 0.05em;
   }

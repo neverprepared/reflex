@@ -65,7 +65,7 @@
 
 <header>
   <h1><span class="accent">containers</span></h1>
-  <button class="new-btn" onclick={() => showNewModal = true}>+ new session</button>
+  <button class="new-btn" onclick={() => showNewModal = true} aria-label="Create new session">+ new session</button>
 </header>
 
 {#if sessions.length === 0}
@@ -172,7 +172,7 @@
     text-align: center;
     padding: 24px 0 8px;
     font-size: 11px;
-    color: #475569;
+    color: #64748b;
   }
   .attribution a {
     color: #f59e0b;

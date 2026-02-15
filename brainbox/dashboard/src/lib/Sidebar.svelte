@@ -18,8 +18,10 @@
           class:active={currentPanel.value === panel.id}
           onclick={() => currentPanel.value = panel.id}
           title={panel.label}
+          aria-label={panel.label}
+          aria-current={currentPanel.value === panel.id ? 'page' : undefined}
         >
-          <span class="nav-icon">{@html panel.icon}</span>
+          <span class="nav-icon" aria-hidden="true">{@html panel.icon}</span>
           {#if !sidebarCollapsed.value}
             <span class="nav-label">{panel.label}</span>
           {/if}
@@ -29,11 +31,15 @@
   </ul>
 
   <div class="sidebar-footer">
-    <button class="collapse-btn" onclick={() => sidebarCollapsed.toggle()} title={sidebarCollapsed.value ? 'Expand sidebar' : 'Collapse sidebar'}>
+    <button
+      class="collapse-btn"
+      onclick={() => sidebarCollapsed.toggle()}
+      aria-label={sidebarCollapsed.value ? 'Expand sidebar' : 'Collapse sidebar'}
+    >
       {#if sidebarCollapsed.value}
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
       {:else}
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
       {/if}
     </button>
   </div>
@@ -126,7 +132,7 @@
     background: none;
     border: none;
     border-radius: 6px;
-    color: #475569;
+    color: #64748b;
     cursor: pointer;
     transition: all 0.15s;
   }

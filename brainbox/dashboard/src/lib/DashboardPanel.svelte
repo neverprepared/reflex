@@ -7,13 +7,26 @@
 
   let sessions = $state([]);
   let eventSource = null;
+  let abortController = null;
 
   const DOCKER_EVENTS = ['create', 'start', 'stop', 'die', 'destroy'];
 
   async function refresh() {
+    // Cancel previous request if still in flight
+    if (abortController) {
+      abortController.abort();
+    }
+
+    abortController = new AbortController();
+
     try {
-      sessions = await fetchSessions();
-    } catch { /* noop */ }
+      sessions = await fetchSessions(abortController.signal);
+    } catch (err) {
+      // Ignore AbortError - it's expected when cancelling requests
+      if (err.name !== 'AbortError') {
+        console.error('Failed to fetch sessions:', err);
+      }
+    }
   }
 
   onMount(() => {
@@ -32,6 +45,7 @@
 
   onDestroy(() => {
     if (eventSource) eventSource.close();
+    if (abortController) abortController.abort();
   });
 
   let activeSessions = $derived(sessions.filter(s => s.active));

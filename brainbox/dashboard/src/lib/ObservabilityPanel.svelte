@@ -3,6 +3,7 @@
   import { fetchLangfuseHealth, fetchSessions, fetchSessionSummary, connectSSE } from './api.js';
   import TraceTimeline from './TraceTimeline.svelte';
   import ToolBreakdown from './ToolBreakdown.svelte';
+  import StatCard from './StatCard.svelte';
 
   let health = $state({ healthy: false, mode: 'off' });
   let sessions = $state([]);
@@ -87,22 +88,10 @@
 </header>
 
 <div class="stats">
-  <div class="stat-card" class:stat-healthy={health.healthy} class:stat-unhealthy={!health.healthy}>
-    <div class="stat-label">LangFuse</div>
-    <div class="stat-value">{health.healthy ? 'Connected' : 'Offline'}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Total Traces</div>
-    <div class="stat-value">{totalTraces}</div>
-  </div>
-  <div class="stat-card" class:stat-errors={totalErrors > 0}>
-    <div class="stat-label">Errors</div>
-    <div class="stat-value">{totalErrors}</div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">Active Sessions</div>
-    <div class="stat-value stat-sessions">{activeCount}</div>
-  </div>
+  <StatCard label="LangFuse" value={health.healthy ? 'Connected' : 'Offline'} variant={health.healthy ? 'healthy' : 'unhealthy'} />
+  <StatCard label="Total Traces" value={totalTraces} />
+  <StatCard label="Errors" value={totalErrors} variant={totalErrors > 0 ? 'errors' : 'default'} />
+  <StatCard label="Active Sessions" value={activeCount} variant="sessions" />
 </div>
 
 <div class="widgets">
@@ -147,28 +136,6 @@
   @media (max-width: 600px) {
     .stats { grid-template-columns: repeat(2, 1fr); }
   }
-  .stat-card {
-    background: #111827;
-    border: 1px solid #1e293b;
-    border-radius: 8px;
-    padding: 16px 20px;
-  }
-  .stat-label {
-    font-size: 11px;
-    color: #64748b;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-bottom: 8px;
-  }
-  .stat-value {
-    font-size: 28px;
-    font-weight: 600;
-    color: #e2e8f0;
-  }
-  .stat-healthy .stat-value { color: #10b981; font-size: 20px; }
-  .stat-unhealthy .stat-value { color: #ef4444; font-size: 20px; }
-  .stat-errors .stat-value { color: #ef4444; }
-  .stat-sessions { color: #10b981; }
 
   .widgets {
     display: grid;

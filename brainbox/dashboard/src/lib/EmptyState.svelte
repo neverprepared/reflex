@@ -51,10 +51,10 @@
     border-radius: 3px;
     font-size: 13px;
   }
-  .help td:last-child { color: #475569; }
+  .help td:last-child { color: #64748b; }
   .tip {
     margin-top: 24px;
     font-size: 13px;
-    color: #475569;
+    color: #64748b;
   }
 </style>

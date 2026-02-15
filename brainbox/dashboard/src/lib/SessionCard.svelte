@@ -1,6 +1,7 @@
 <script>
   import { stopSession, deleteSession, startSession } from './api.js';
   import { notifications } from './notifications.svelte.js';
+  import Badge from './Badge.svelte';
 
   let { session, onUpdate, onInfo } = $props();
 
@@ -69,29 +70,37 @@
   let workspaceProfile = $derived((session.workspace_profile || '').toUpperCase());
 </script>
 
-<!-- svelte-ignore a11y_click_events_have_key_events -->
-<!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="session-card"
   class:active={session.active}
   class:inactive={!session.active}
+  role="article"
+  aria-label={`Session ${displayName}, ${session.active ? 'active' : 'inactive'}, ${displayRole} role, ${llmVisibility} provider`}
   onclick={(e) => { if (!e.target.closest('button, a')) resetConfirm(); }}
+  onkeydown={(e) => { if (e.key === 'Escape' && confirmAction) resetConfirm(); }}
 >
   <div class="card-header">
-    <span class="status-dot" class:active={session.active}></span>
-    <a href={'#'} class="session-name" onclick={(e) => { e.preventDefault(); onInfo(session.name); }}>{displayName}</a>
-    <span class="role-badge" data-role={displayRole}>{displayRole}</span>
-    <span class="provider-badge" data-visibility={llmVisibility}>{llmVisibility}</span>
+    <span class="status-dot" class:active={session.active} aria-label={session.active ? 'Active' : 'Inactive'}></span>
+    <a
+      href={'#'}
+      class="session-name"
+      onclick={(e) => { e.preventDefault(); onInfo(session.name); }}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onInfo(session.name); } }}
+      aria-label={`View details for ${displayName}`}
+    >{displayName}</a>
+    <Badge type="role" variant={displayRole} text={displayRole} />
+    <Badge type="provider" variant={llmVisibility} text={llmVisibility} />
     {#if workspaceProfile}
-      <span class="profile-badge">{workspaceProfile}</span>
+      <Badge type="profile" variant="workspace" text={workspaceProfile} />
     {/if}
   </div>
 
   <div class="card-url">
     {#if session.active}
-      <a href={session.url} target="_blank">{displayUrl}</a>
+      <a href={session.url} target="_blank" aria-label={`Open ${displayName} in new tab at ${displayUrl}`}>{displayUrl}</a>
     {:else}
-      <button class="start-btn" onclick={handleStart} disabled={isStarting}>
+      <button class="start-btn" onclick={handleStart} disabled={isStarting} aria-label={`Start session ${displayName}`}>
         {isStarting ? 'starting...' : 'start'}
       </button>
     {/if}
@@ -106,11 +115,11 @@
 
   <div class="card-actions">
     {#if session.active}
-      <button class="stop-btn" onclick={handleStop}>
+      <button class="stop-btn" onclick={handleStop} aria-label={confirmAction === 'stop' ? `Confirm stop session ${displayName}` : `Stop session ${displayName}`}>
         {confirmAction === 'stop' ? 'stop?' : 'stop'}
       </button>
     {:else}
-      <button class="delete-btn" onclick={handleDelete}>
+      <button class="delete-btn" onclick={handleDelete} aria-label={confirmAction === 'delete' ? `Confirm delete session ${displayName}` : `Delete session ${displayName}`}>
         {confirmAction === 'delete' ? 'delete?' : 'delete'}
       </button>
     {/if}
@@ -119,83 +128,44 @@
 
 <style>
   .session-card {
-    background: #111827;
-    border: 1px solid #1e293b;
-    border-radius: 8px;
-    padding: 16px 20px;
-    border-left: 3px solid #1e293b;
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border-primary);
+    border-radius: var(--radius-xl);
+    padding: var(--spacing-lg) var(--spacing-xl);
+    border-left: 3px solid var(--color-border-primary);
     transition: opacity 0.2s;
   }
-  .session-card.active { border-left-color: #10b981; }
+  .session-card.active { border-left-color: var(--color-success); }
   .session-card.inactive { opacity: 0.5; }
 
   .card-header {
     display: flex;
     align-items: center;
     gap: 10px;
-    margin-bottom: 12px;
+    margin-bottom: var(--spacing-md);
   }
   .status-dot {
-    width: 8px;
-    height: 8px;
+    width: var(--spacing-sm);
+    height: var(--spacing-sm);
     border-radius: 50%;
     background: #374151;
     flex-shrink: 0;
   }
   .status-dot.active {
-    background: #10b981;
+    background: var(--color-success);
     box-shadow: 0 0 6px rgba(16, 185, 129, 0.4);
   }
   .session-name {
-    color: #e2e8f0;
+    color: var(--color-text-primary);
     text-decoration: none;
     font-weight: 500;
     font-size: 15px;
   }
-  .session-name:hover { color: #f59e0b; }
-
-  .role-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    font-weight: 600;
-    flex-shrink: 0;
-  }
-  .role-badge[data-role="developer"] { background: rgba(59, 130, 246, 0.15); color: #3b82f6; }
-  .role-badge[data-role="researcher"] { background: rgba(168, 85, 247, 0.15); color: #a855f7; }
-  .role-badge[data-role="performer"] { background: rgba(249, 115, 22, 0.15); color: #f97316; }
-
-  .provider-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    letter-spacing: 0.02em;
-    font-weight: 500;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-    flex-shrink: 0;
-  }
-  .provider-badge[data-visibility="public"] { background: rgba(236, 72, 153, 0.15); color: #ec4899; }
-  .provider-badge[data-visibility="private"] { background: rgba(34, 197, 94, 0.15); color: #22c55e; }
-
-  .profile-badge {
-    font-size: 10px;
-    padding: 2px 6px;
-    border-radius: 3px;
-    text-transform: lowercase;
-    letter-spacing: 0.02em;
-    font-weight: 500;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-    flex-shrink: 0;
-    background: rgba(245, 158, 11, 0.15);
-    color: #f59e0b;
-  }
+  .session-name:hover { color: var(--color-accent); }
 
   .card-url { margin-bottom: 6px; }
   .card-url a {
-    color: #f59e0b;
+    color: var(--color-accent);
     text-decoration: none;
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
     font-size: 12px;
@@ -204,14 +174,14 @@
 
   .card-detail {
     font-size: 13px;
-    color: #64748b;
+    color: var(--color-text-tertiary);
     margin-bottom: 6px;
     display: flex;
     align-items: center;
     gap: 6px;
   }
   .card-detail-label {
-    color: #475569;
+    color: var(--color-text-muted);
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.03em;
@@ -220,7 +190,7 @@
   .card-volume {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
     font-size: 11px;
-    color: #475569;
+    color: var(--color-text-muted);
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -233,19 +203,19 @@
   }
 
   .card-actions {
-    margin-top: 12px;
-    padding-top: 12px;
-    border-top: 1px solid #1e293b;
+    margin-top: var(--spacing-md);
+    padding-top: var(--spacing-md);
+    border-top: 1px solid var(--color-border-primary);
     display: flex;
-    gap: 8px;
+    gap: var(--spacing-sm);
   }
 
   .stop-btn {
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.3);
-    color: #ef4444;
-    padding: 4px 12px;
-    border-radius: 4px;
+    color: var(--color-error);
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-md);
     cursor: pointer;
     font-family: inherit;
     font-size: 12px;
@@ -253,14 +223,14 @@
   }
   .stop-btn:hover {
     background: rgba(239, 68, 68, 0.2);
-    border-color: #ef4444;
+    border-color: var(--color-error);
   }
   .delete-btn {
     background: rgba(239, 68, 68, 0.1);
     border: 1px solid rgba(239, 68, 68, 0.2);
     color: #f87171;
-    padding: 4px 12px;
-    border-radius: 4px;
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-md);
     cursor: pointer;
     font-family: inherit;
     font-size: 12px;
@@ -268,14 +238,14 @@
   }
   .delete-btn:hover {
     background: rgba(239, 68, 68, 0.2);
-    border-color: #ef4444;
+    border-color: var(--color-error);
   }
   .start-btn {
     background: rgba(16, 185, 129, 0.1);
     border: 1px solid rgba(16, 185, 129, 0.3);
-    color: #10b981;
-    padding: 4px 12px;
-    border-radius: 4px;
+    color: var(--color-success);
+    padding: var(--spacing-xs) var(--spacing-md);
+    border-radius: var(--radius-md);
     cursor: pointer;
     font-family: inherit;
     font-size: 12px;
@@ -283,6 +253,6 @@
   }
   .start-btn:hover {
     background: rgba(16, 185, 129, 0.2);
-    border-color: #10b981;
+    border-color: var(--color-success);
   }
 </style>

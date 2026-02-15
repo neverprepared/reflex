@@ -13,11 +13,14 @@ import docker
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sse_starlette.sse import EventSourceResponse
 
 from datetime import datetime, timezone
 
 from .config import settings
+from .rate_limit import limiter, rate_limit_exceeded_handler
 from .hub import init as hub_init, shutdown as hub_shutdown
 from .monitor import _calc_cpu, _human_bytes
 from .lifecycle import (
@@ -29,14 +32,18 @@ from .lifecycle import (
     monitor as lifecycle_monitor,
 )
 from .validation import (
-    validate_session_name,
-    validate_volume_mount,
-    validate_role,
     validate_artifact_key,
     ValidationError,
 )
 from .log import get_logger, setup_logging
 from .models import TaskCreate, Token
+from .models_api import (
+    CreateSessionRequest,
+    DeleteSessionRequest,
+    ExecSessionRequest,
+    StartSessionRequest,
+    StopSessionRequest,
+)
 from .registry import get_agent, list_agents, list_tokens, validate_token
 from .router import (
     cancel_task,
@@ -64,6 +71,36 @@ from .langfuse_client import (
 from .messages import get_message_log, get_messages, route as route_message
 
 log = get_logger()
+
+
+# ---------------------------------------------------------------------------
+# Audit logging helper
+# ---------------------------------------------------------------------------
+
+
+def _audit_log(
+    request: Request,
+    operation: str,
+    session_name: str | None = None,
+    success: bool = True,
+    error: str | None = None,
+) -> None:
+    """Log destructive operations with client metadata."""
+    client_ip = get_remote_address(request) if hasattr(request, "client") else "unknown"
+    user_agent = request.headers.get("user-agent", "unknown")
+
+    log.info(
+        "audit.operation",
+        metadata={
+            "operation": operation,
+            "session_name": session_name or "N/A",
+            "client_ip": client_ip,
+            "user_agent": user_agent,
+            "success": success,
+            "error": error,
+        },
+    )
+
 
 # ---------------------------------------------------------------------------
 # SSE client management
@@ -174,6 +211,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Brainbox", version="0.2.0", lifespan=lifespan)
+
+# Add rate limiter state and exception handler
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 
 # ---------------------------------------------------------------------------
@@ -293,12 +334,13 @@ async def api_list_sessions():
 
 
 @app.post("/api/stop")
-async def api_stop_session(request: Request):
-    body = await request.json()
-    name = body.get("name", "")
+@limiter.limit("10/minute")
+async def api_stop_session(request: Request, body: StopSessionRequest):
+    name = body.name
     session_name = _extract_session_name(name)
     try:
         await recycle(session_name, reason="dashboard_stop")
+        _audit_log(request, "session.stop", session_name=session_name, success=True)
         return {"success": True}
     except Exception as exc:
         # Fallback to direct Docker stop
@@ -310,28 +352,47 @@ async def api_stop_session(request: Request):
             client = docker.from_env()
             container = client.containers.get(name)
             container.stop(timeout=1)
+            _audit_log(request, "session.stop", session_name=session_name, success=True)
             return {"success": True}
         except docker.errors.NotFound:
+            _audit_log(
+                request, "session.stop", session_name=session_name, success=False, error="not_found"
+            )
             log.error("session.stop_failed.not_found", metadata={"container": name})
             raise HTTPException(status_code=404, detail=f"Container not found: {name}")
         except docker.errors.DockerException as docker_exc:
+            _audit_log(
+                request,
+                "session.stop",
+                session_name=session_name,
+                success=False,
+                error=str(docker_exc),
+            )
             log.error(
                 "session.stop_failed.docker_error",
                 metadata={"container": name, "error": str(docker_exc)},
             )
             raise HTTPException(status_code=500, detail=f"Docker error: {docker_exc}")
         except Exception as fallback_exc:
+            _audit_log(
+                request,
+                "session.stop",
+                session_name=session_name,
+                success=False,
+                error=str(fallback_exc),
+            )
             log.exception("session.stop_failed.unexpected")
             raise HTTPException(status_code=500, detail=f"Failed to stop session: {fallback_exc}")
 
 
 @app.post("/api/delete")
-async def api_delete_session(request: Request):
-    body = await request.json()
-    name = body.get("name", "")
+@limiter.limit("10/minute")
+async def api_delete_session(request: Request, body: DeleteSessionRequest):
+    name = body.name
     session_name = _extract_session_name(name)
     try:
         await recycle(session_name, reason="dashboard_delete")
+        _audit_log(request, "session.delete", session_name=session_name, success=True)
         return {"success": True}
     except Exception as exc:
         log.warning(
@@ -346,31 +407,54 @@ async def api_delete_session(request: Request):
             client = docker.from_env()
             container = client.containers.get(name)
             container.remove()
+            _audit_log(request, "session.delete", session_name=session_name, success=True)
             return {"success": True}
         except docker.errors.NotFound:
+            _audit_log(
+                request,
+                "session.delete",
+                session_name=session_name,
+                success=False,
+                error="not_found",
+            )
             log.error("session.delete_failed.not_found", metadata={"container": name})
             raise HTTPException(status_code=404, detail=f"Container not found: {name}")
         except docker.errors.DockerException as docker_exc:
+            _audit_log(
+                request,
+                "session.delete",
+                session_name=session_name,
+                success=False,
+                error=str(docker_exc),
+            )
             log.error(
                 "session.delete_failed.docker_error",
                 metadata={"container": name, "error": str(docker_exc)},
             )
             raise HTTPException(status_code=500, detail=f"Docker error: {docker_exc}")
         except Exception as fallback_exc:
+            _audit_log(
+                request,
+                "session.delete",
+                session_name=session_name,
+                success=False,
+                error=str(fallback_exc),
+            )
             log.exception("session.delete_failed.unexpected")
             raise HTTPException(status_code=500, detail=f"Failed to delete session: {fallback_exc}")
 
 
 @app.post("/api/start")
-async def api_start_session(request: Request):
-    body = await request.json()
-    name = body.get("name", "")
+@limiter.limit("10/minute")
+async def api_start_session(request: Request, body: StartSessionRequest):
+    name = body.name
     session_name = _extract_session_name(name)
     try:
         ctx = await provision(session_name=session_name, hardened=False)
         await configure(ctx)
         await lifecycle_start(ctx)
         await lifecycle_monitor(ctx)
+        _audit_log(request, "session.start", session_name=session_name, success=True)
         return {"success": True, "url": f"http://localhost:{ctx.port}"}
     except Exception as exc:
         log.error(
@@ -393,82 +477,70 @@ async def api_start_session(request: Request):
                             port = b["HostPort"]
                             break
 
+            _audit_log(request, "session.start", session_name=session_name, success=True)
             return {"success": True, "url": f"http://localhost:{port}"}
         except docker.errors.NotFound:
+            _audit_log(
+                request,
+                "session.start",
+                session_name=session_name,
+                success=False,
+                error="not_found",
+            )
             log.error("session.start_failed.not_found", metadata={"container": name})
             raise HTTPException(status_code=404, detail=f"Container not found: {name}")
         except docker.errors.DockerException as docker_exc:
+            _audit_log(
+                request,
+                "session.start",
+                session_name=session_name,
+                success=False,
+                error=str(docker_exc),
+            )
             log.error(
                 "session.start_failed.docker_error",
                 metadata={"container": name, "error": str(docker_exc)},
             )
             raise HTTPException(status_code=500, detail=f"Docker error: {docker_exc}")
         except Exception as fallback_exc:
+            _audit_log(
+                request,
+                "session.start",
+                session_name=session_name,
+                success=False,
+                error=str(fallback_exc),
+            )
             log.exception("session.start_failed.unexpected")
             raise HTTPException(status_code=500, detail=f"Failed to start session: {fallback_exc}")
 
 
 @app.post("/api/create")
-async def api_create_session(request: Request):
-    body = await request.json()
-    name = body.get("name")
-    role = body.get("role")
-    # Support both new "volumes" (list) and legacy "volume" (string) for backward compatibility
-    volumes = body.get("volumes")
-    if volumes is None:
-        # Fall back to legacy single volume parameter
-        volume = body.get("volume")
-        volumes = [volume] if volume else []
-    elif not isinstance(volumes, list):
-        # Normalize single string to list
-        volumes = [volumes] if volumes else []
-    llm_provider = body.get("llm_provider", "claude")
-    llm_model = body.get("llm_model") or None
-    ollama_host = body.get("ollama_host") or None
-    workspace_profile = body.get("workspace_profile") or None
-    workspace_home = body.get("workspace_home") or None
-
-    # Validate inputs
-    try:
-        validated_name = validate_session_name(name or "default")
-        validated_role = validate_role(role) if role else "developer"
-
-        # Validate volume mounts
-        validated_volumes = []
-        for vol in volumes:
-            if vol and vol != "-":  # Skip empty or placeholder volumes
-                host, container, mode = validate_volume_mount(vol)
-                validated_volumes.append(f"{host}:{container}:{mode}")
-    except ValidationError as val_err:
-        log.error("session.create.validation_failed", metadata={"error": str(val_err)})
-        raise HTTPException(status_code=400, detail=str(val_err))
-
+@limiter.limit("10/minute")
+async def api_create_session(request: Request, body: CreateSessionRequest):
     try:
         ctx = await run_pipeline(
-            session_name=validated_name,
-            role=validated_role,
+            session_name=body.name,
+            role=body.role,
             hardened=False,
-            volume_mounts=validated_volumes,
-            llm_provider=llm_provider,
-            llm_model=llm_model,
-            ollama_host=ollama_host,
-            workspace_profile=workspace_profile,
-            workspace_home=workspace_home,
+            volume_mounts=body.volumes,
+            llm_provider=body.llm_provider,
+            llm_model=body.llm_model,
+            ollama_host=body.ollama_host,
+            workspace_profile=body.workspace_profile,
+            workspace_home=body.workspace_home,
         )
+        _audit_log(request, "session.create", session_name=body.name, success=True)
         return {"success": True, "url": f"http://localhost:{ctx.port}"}
     except Exception as exc:
+        _audit_log(request, "session.create", session_name=body.name, success=False, error=str(exc))
         log.error("session.create.failed", metadata={"error": str(exc)})
         return {"success": False, "error": str(exc)}
 
 
 @app.post("/api/sessions/{name}/exec")
-async def api_exec_session(name: str, request: Request):
+@limiter.limit("10/minute")
+async def api_exec_session(request: Request, name: str, body: ExecSessionRequest):
     """Execute a command inside a running container."""
-    body = await request.json()
-    command = body.get("command", "").strip()
-    if not command:
-        raise HTTPException(status_code=400, detail="command is required")
-
     prefix = settings.resolved_prefix
     container_name = f"{prefix}{name}"
 
@@ -476,11 +548,19 @@ async def api_exec_session(name: str, request: Request):
         client = docker.from_env()
         container = client.containers.get(container_name)
     except docker.errors.NotFound:
+        _audit_log(request, "session.exec", session_name=name, success=False, error="not_found")
         raise HTTPException(status_code=404, detail=f"Container '{name}' not found")
 
     loop = asyncio.get_running_loop()
     exit_code, output = await loop.run_in_executor(
-        None, lambda: container.exec_run(["sh", "-c", command])
+        None, lambda: container.exec_run(["sh", "-c", body.command])
+    )
+    _audit_log(
+        request,
+        "session.exec",
+        session_name=name,
+        success=exit_code == 0,
+        error=None if exit_code == 0 else f"exit_code={exit_code}",
     )
     return {
         "success": exit_code == 0,
@@ -742,6 +822,7 @@ async def api_list_artifacts(prefix: str = Query(default="")):
 
 
 @app.post("/api/artifacts/{key:path}", status_code=201)
+@limiter.limit("30/minute")
 async def api_upload_artifact(key: str, request: Request):
     """Upload an artifact (raw bytes in request body)."""
     # Validate artifact key to prevent path traversal
@@ -766,13 +847,16 @@ async def api_upload_artifact(key: str, request: Request):
 
 
 @app.get("/api/artifacts/{key:path}")
-async def api_download_artifact(key: str):
+@limiter.limit("30/minute")
+async def api_download_artifact(request: Request, key: str):
     """Download an artifact by key."""
     # Validate artifact key to prevent path traversal
     try:
         validated_key = validate_artifact_key(key)
     except ValidationError as val_err:
-        log.error("artifact.download.validation_failed", metadata={"key": key, "error": str(val_err)})
+        log.error(
+            "artifact.download.validation_failed", metadata={"key": key, "error": str(val_err)}
+        )
         raise HTTPException(status_code=400, detail=str(val_err))
 
     result = await _artifact_op(download_artifact, validated_key)
@@ -784,7 +868,8 @@ async def api_download_artifact(key: str):
 
 
 @app.delete("/api/artifacts/{key:path}")
-async def api_delete_artifact(key: str):
+@limiter.limit("30/minute")
+async def api_delete_artifact(request: Request, key: str):
     """Delete an artifact by key."""
     await _artifact_op(delete_artifact, key)
     return {"deleted": True, "key": key}

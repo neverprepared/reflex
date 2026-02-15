@@ -37,9 +37,24 @@
   <div class="frame-bar">
     <span>{displayName}</span>
     <div class="frame-actions">
-      <a href={'#'} class="frame-stop" onclick={handleStop}>{confirmStop ? 'stop?' : 'stop'}</a>
-      <a href={'#'} onclick={refreshFrame}>refresh</a>
-      <a href={session.url} target="_blank">open</a>
+      <a
+        href={'#'}
+        class="frame-stop"
+        onclick={handleStop}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStop(e); } }}
+        aria-label={confirmStop ? `Confirm stop ${displayName}` : `Stop ${displayName}`}
+      >{confirmStop ? 'stop?' : 'stop'}</a>
+      <a
+        href={'#'}
+        onclick={refreshFrame}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); refreshFrame(e); } }}
+        aria-label={`Refresh ${displayName}`}
+      >refresh</a>
+      <a
+        href={session.url}
+        target="_blank"
+        aria-label={`Open ${displayName} in new tab`}
+      >open</a>
     </div>
   </div>
   {#key refreshKey}

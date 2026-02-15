@@ -79,7 +79,7 @@
     letter-spacing: 0.05em;
     margin-bottom: 16px;
   }
-  .empty { color: #475569; font-size: 14px; }
+  .empty { color: #64748b; font-size: 14px; }
   .bar-chart {
     display: flex;
     flex-direction: column;

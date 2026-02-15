@@ -24,8 +24,8 @@ async function fetchJSON(url, options = {}) {
   }
 }
 
-export async function fetchSessions() {
-  return fetchJSON('/api/sessions');
+export async function fetchSessions(signal = null) {
+  return fetchJSON('/api/sessions', signal ? { signal } : {});
 }
 
 export async function stopSession(name) {
@@ -60,8 +60,8 @@ export async function createSession({ name, role, volume, query, openTab, llm_pr
   });
 }
 
-export async function fetchContainerMetrics() {
-  return fetchJSON('/api/metrics/containers');
+export async function fetchContainerMetrics(signal = null) {
+  return fetchJSON('/api/metrics/containers', signal ? { signal } : {});
 }
 
 export async function fetchHubState() {
