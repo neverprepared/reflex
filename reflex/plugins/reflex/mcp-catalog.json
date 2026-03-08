@@ -244,6 +244,16 @@
           "UPTIME_KUMA_MFA_TOKEN": "${UPTIME_KUMA_MFA_TOKEN}"
         }
       }
+    },
+    "az-pim": {
+      "description": "Azure Privileged Identity Management — activate and manage PIM role assignments",
+      "category": "cloud",
+      "url": "https://github.com/netr0m/az-pim-cli",
+      "requires": [],
+      "definition": {
+        "command": "az-pim-cli",
+        "args": ["mcp"]
+      }
     }
   }
 }
