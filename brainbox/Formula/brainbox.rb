@@ -71,7 +71,15 @@ class Brainbox < Formula
       fi
 
       # Run brainbox in Docker
-      exec docker run --rm -it \\
+      # Use -it only when stdin is a TTY and not running as a background server
+      DOCKER_FLAGS="--rm"
+      if [[ "$1" == "api" ]]; then
+          DOCKER_FLAGS="$DOCKER_FLAGS -d"
+      elif [[ -t 0 ]]; then
+          DOCKER_FLAGS="$DOCKER_FLAGS -it"
+      fi
+
+      exec docker run $DOCKER_FLAGS \\
           -v /var/run/docker.sock:/var/run/docker.sock \\
           -v "$HOME/.config/brainbox:/home/developer/.config" \\
           -v "$PWD:/workspace" \\
