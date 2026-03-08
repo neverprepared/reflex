@@ -111,14 +111,26 @@ def list_sessions() -> list[dict[str, Any]]:
 
 
 @mcp.tool()
-def create_session(name: str = "default", volume: str | None = None) -> dict[str, Any]:
+def create_session(
+    name: str = "default",
+    volume: str | None = None,
+    role: str = "developer",
+) -> dict[str, Any]:
     """Create and start a new container session.
+
+    Available roles: developer (default interactive), supervisor (orchestrates agents),
+    worker (executes tasks, creates PRs), merge-queue (auto-merges when CI passes),
+    pr-shepherd (coordinates fork PRs), reviewer (reviews PRs).
+
+    Persistent roles (supervisor, merge-queue, pr-shepherd) auto-restart on failure.
+    Transient roles (worker, reviewer) clean up their containers on completion.
 
     Args:
         name: Session name (container will be named developer-{name})
         volume: Optional host:container volume mount (e.g. /path/to/code:/workspace)
+        role: Agent role — controls the system prompt injected into the container
     """
-    body: dict[str, Any] = {"name": name}
+    body: dict[str, Any] = {"name": name, "role": role}
     if volume:
         body["volume"] = volume
     return _request("POST", "/api/create", body)
@@ -162,13 +174,25 @@ def get_metrics() -> list[dict[str, Any]]:
 
 @mcp.tool()
 def submit_task(
-    description: str, agent_name: str = "developer", repo_url: str | None = None
+    description: str, agent_name: str = "worker", repo_url: str | None = None
 ) -> dict[str, Any]:
-    """Submit a task to the hub for execution in an isolated container.
+    """Submit a task to the hub — spawns an isolated container running the specified agent.
+
+    Multiclaude workflow: register a repo with add_repo(), then submit a supervisor task
+    to coordinate workers. The supervisor spawns workers autonomously; use list_tasks()
+    and get_message_log() to monitor progress.
+
+    Available agent names:
+      supervisor   — orchestrates the overall workflow, spawns workers
+      worker       — executes a specific task and creates a PR (transient)
+      reviewer     — reviews an open PR and posts comments (transient)
+      merge-queue  — watches PRs and merges when CI passes (persistent, prefer add_repo)
+      pr-shepherd  — coordinates PRs for fork repos (persistent, prefer add_repo)
+      developer    — interactive Claude Code session (default for create_session)
 
     Args:
         description: Task description / instructions for the agent
-        agent_name: Agent to assign the task to (default: developer)
+        agent_name: Agent role to run (default: worker)
         repo_url: Optional GitHub repo URL to associate the task with
     """
     body: dict[str, Any] = {
@@ -491,6 +515,73 @@ def delete_repo(name: str) -> dict[str, Any]:
         name: Repository short name
     """
     return _request("DELETE", f"/api/hub/repos/{name}")
+
+
+@mcp.tool()
+def get_message_log(limit: int = 50) -> list[dict[str, Any]]:
+    """Return the hub inter-agent message audit log.
+
+    Shows messages exchanged between agents (supervisor → worker, worker → hub lifecycle
+    events, merge-queue → supervisor status updates, etc.). Useful for monitoring
+    multiclaude workflow progress without pulling the full hub state.
+
+    Args:
+        limit: Maximum number of recent messages to return (default: 50)
+    """
+    log = _request("GET", "/api/hub/message-log")
+    if isinstance(log, list):
+        return log[-limit:]
+    return log
+
+
+@mcp.tool()
+def multiclaude_status() -> dict[str, Any]:
+    """Summarise the current multiclaude workflow state in one call.
+
+    Returns a structured snapshot of:
+      - repos: tracked repositories and their persistent agent containers
+      - tasks: active (pending/running) tasks grouped by agent role
+      - recent_messages: last 20 inter-agent messages
+      - agents: available agent roles
+
+    Use this as the primary monitoring tool during a multiclaude session.
+    """
+    state = _request("GET", "/api/hub/state")
+    if "error" in state:
+        return state
+
+    active_tasks = [t for t in state.get("tasks", []) if t.get("status") in ("pending", "running")]
+    recent_messages = state.get("messages", [])[-20:]
+
+    by_role: dict[str, list[dict]] = {}
+    for task in active_tasks:
+        role = task.get("agent_name", "unknown")
+        by_role.setdefault(role, []).append({
+            "id": task.get("id"),
+            "status": task.get("status"),
+            "description": (task.get("description") or "")[:120],
+            "repo_url": task.get("repo_url"),
+            "created_at": task.get("created_at"),
+        })
+
+    repos = [
+        {
+            "name": r.get("name"),
+            "url": r.get("url"),
+            "merge_queue": r.get("merge_queue_enabled"),
+            "pr_shepherd": r.get("pr_shepherd_enabled"),
+            "target_branch": r.get("target_branch"),
+        }
+        for r in state.get("repos", [])
+    ]
+
+    return {
+        "repos": repos,
+        "active_tasks": by_role,
+        "active_task_count": len(active_tasks),
+        "recent_messages": recent_messages,
+        "available_agents": [a.get("name") for a in state.get("agents", [])],
+    }
 
 
 def run() -> None:

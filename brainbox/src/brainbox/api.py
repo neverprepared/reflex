@@ -1330,6 +1330,12 @@ async def hub_state(_key=Depends(require_api_key)):
     }
 
 
+@app.get("/api/hub/message-log")
+async def hub_message_log(_key=Depends(require_api_key)):
+    """Return the hub message audit log (admin read-only, no agent token required)."""
+    return get_message_log()
+
+
 # --- Repositories ---
 
 
