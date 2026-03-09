@@ -19,19 +19,20 @@ else
     # Start Claude interactively; hub-spawned workers get their task injected
     # as the first prompt so the session stays alive for follow-up queries.
     tmux send-keys -t main "$CLAUDE_CMD" Enter
-    if [ -f "/home/developer/.brainbox/task.txt" ]; then
-        # Poll until Claude's prompt is visible (up to 60s), then send task
-        for i in $(seq 1 30); do
-            sleep 2
-            if tmux capture-pane -t main -p 2>/dev/null | grep -qE "❯|bypass permissions|Try "; then
-                break
-            fi
-        done
-        # Send task content — Claude shows multi-line pastes as "[Pasted text]"
-        # and waits for Enter; we send Enter after a short pause to confirm.
-        tmux send-keys -t main "$(cat /home/developer/.brainbox/task.txt)"
-        sleep 1
-        tmux send-keys -t main "" Enter
-    fi
+    # Poll for BOTH task.txt existence AND Claude's ready prompt (up to 120s).
+    # task.txt is written by configure() after the container starts, so we must
+    # not check for it before the loop — it may not exist yet under load.
+    for i in $(seq 1 60); do
+        sleep 2
+        if [ -f "/home/developer/.brainbox/task.txt" ] && \
+           tmux capture-pane -t main -p 2>/dev/null | grep -qE "❯|bypass permissions|Try "; then
+            # Send task content — Claude shows multi-line pastes as "[Pasted text]"
+            # and waits for Enter; we send Enter after a short pause to confirm.
+            tmux send-keys -t main "$(cat /home/developer/.brainbox/task.txt)"
+            sleep 1
+            tmux send-keys -t main "" Enter
+            break
+        fi
+    done
     exec tmux attach -t main
 fi
