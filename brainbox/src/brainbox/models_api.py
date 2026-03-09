@@ -140,6 +140,8 @@ class CreateRepoRequest(BaseModel):
     target_branch: str = Field("main", description="Target branch for merges")
     is_fork: bool = Field(False, description="Whether this is a fork repo")
     upstream_url: str | None = Field(None, description="Upstream repo URL (for forks)")
+    workspace_home: str | None = Field(None, description="Workspace home path for credential mounts (SSH, git, cloud)")
+    workspace_profile: str | None = Field(None, description="Workspace profile name")
 
     @field_validator("url")
     @classmethod

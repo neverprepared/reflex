@@ -1355,6 +1355,8 @@ async def hub_add_repo(body: CreateRepoRequest, _key=Depends(require_api_key)):
             target_branch=body.target_branch,
             is_fork=body.is_fork,
             upstream_url=body.upstream_url,
+            workspace_home=body.workspace_home,
+            workspace_profile=body.workspace_profile,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

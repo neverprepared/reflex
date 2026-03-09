@@ -153,6 +153,8 @@ class Repository(BaseModel):
     target_branch: str = "main"
     is_fork: bool = False
     upstream_url: str | None = None
+    workspace_home: str | None = None   # Caller's workspace home (for credential mounts)
+    workspace_profile: str | None = None  # Caller's workspace profile name
 
 
 # ---------------------------------------------------------------------------

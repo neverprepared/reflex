@@ -100,6 +100,15 @@ async def submit_task(
     task.updated_at = _now_ms()
     _tasks[task_id] = task
 
+    # Resolve workspace context from registered repo (for credential mounts)
+    repo_workspace_home = None
+    repo_workspace_profile = None
+    if repo_url:
+        repo = _repos.get(_repo_name(repo_url))
+        if repo:
+            repo_workspace_home = repo.workspace_home
+            repo_workspace_profile = repo.workspace_profile
+
     # Launch container with role-specific configuration
     try:
         await lifecycle.run_pipeline(
@@ -109,6 +118,8 @@ async def submit_task(
             token=token,
             repo_url=repo_url,
             task_description=description,
+            workspace_home=repo_workspace_home,
+            workspace_profile=repo_workspace_profile,
         )
     except Exception as exc:
         task.status = TaskStatus.FAILED
@@ -325,6 +336,8 @@ def add_repo(
     target_branch: str = "main",
     is_fork: bool = False,
     upstream_url: str | None = None,
+    workspace_home: str | None = None,
+    workspace_profile: str | None = None,
 ) -> Repository:
     """Register a repository for multi-agent management."""
     repo_name = name or _repo_name(url)
@@ -339,6 +352,8 @@ def add_repo(
         target_branch=target_branch,
         is_fork=is_fork,
         upstream_url=upstream_url,
+        workspace_home=workspace_home,
+        workspace_profile=workspace_profile,
     )
     _repos[repo_name] = repo
     log.info(

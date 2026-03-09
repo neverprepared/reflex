@@ -112,6 +112,9 @@ class ProfileSettings(BaseSettings):
     mount_gitconfig: bool = True  # .gitconfig file
     mount_gcloud: bool = False  # opt-in
     mount_terraform: bool = False  # opt-in
+    mount_claude_config: bool = True  # ~/.claude (skills, hooks, MCP config)
+    mount_reflex: bool = True  # Reflex share dir (hooks/skills runtime)
+    reflex_share_path: str = "/opt/homebrew/opt/reflex/share/reflex"
 
 
 class OllamaSettings(BaseSettings):
