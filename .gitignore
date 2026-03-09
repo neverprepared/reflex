@@ -16,3 +16,6 @@ CLAUDE.local.md
 # Temporary files
 tmp/
 *.log
+
+# Docker volume data (runtime state, not source)
+docker/volumes/
