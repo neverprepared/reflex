@@ -9,87 +9,62 @@ class Brainbox < Formula
   depends_on "docker"
 
   def install
-    # Create wrapper script inline
+    # Install docker-compose.yml
+    (share/"brainbox").install "docker-compose.yml"
+
+    # Create compose-aware wrapper script
     (bin/"brainbox").write <<~EOS
       #!/bin/bash
-      # brainbox Docker wrapper
-      # Installed by Homebrew to run brainbox via Docker
-
+      # brainbox — Docker Compose wrapper
       set -e
 
-      BRAINBOX_IMAGE="${BRAINBOX_IMAGE:-brainbox:latest}"
+      COMPOSE_FILE="#{share}/brainbox/docker-compose.yml"
       BRAINBOX_VERSION="#{version}"
-
-      # Try ghcr.io if local image doesn't exist
-      if ! docker image inspect "$BRAINBOX_IMAGE" &> /dev/null; then
-          BRAINBOX_IMAGE="ghcr.io/neverprepared/brainbox:latest"
-      fi
-
-      # Color output
-      RED='\\033[0;31m'
-      GREEN='\\033[0;32m'
-      YELLOW='\\033[1;33m'
-      NC='\\033[0m'
-
-      error() {
-          echo -e "${RED}Error:${NC} $1" >&2
-          exit 1
-      }
-
-      info() {
-          echo -e "${GREEN}==>${NC} $1"
-      }
-
-      warn() {
-          echo -e "${YELLOW}Warning:${NC} $1" >&2
-      }
 
       # Check if Docker is installed
       if ! command -v docker &> /dev/null; then
-          error "Docker is not installed. Please install Docker Desktop from https://www.docker.com/products/docker-desktop"
+          echo "Error: Docker is not installed." >&2
+          exit 1
       fi
 
       # Check if Docker daemon is running
-      if ! docker info &> /dev/null; then
-          error "Docker is not running. Please start Docker Desktop and try again."
+      if ! docker info &> /dev/null 2>&1; then
+          echo "Error: Docker is not running. Please start Docker Desktop." >&2
+          exit 1
       fi
 
-      # Pull or build image if not available locally
-      if ! docker image inspect "$BRAINBOX_IMAGE" &> /dev/null; then
-          if [[ "$BRAINBOX_IMAGE" == ghcr.io/* ]]; then
-              info "Pulling brainbox Docker image (this only happens once)..."
-              if ! docker pull "$BRAINBOX_IMAGE" 2>/dev/null; then
-                  warn "Could not pull from ghcr.io. You may need to build locally:"
-                  echo "  git clone https://github.com/neverprepared/ink-bunny.git"
-                  echo "  cd ink-bunny"
-                  echo "  just bb-docker-build"
-                  error "Docker image not available"
-              fi
-          else
-              error "Docker image '$BRAINBOX_IMAGE' not found. Build it with: just bb-docker-build"
-          fi
-      fi
-
-      # Run brainbox in Docker
-      # Use -it only when stdin is a TTY and not running as a background server
-      DOCKER_FLAGS="--rm"
-      if [[ "$1" == "api" ]]; then
-          DOCKER_FLAGS="$DOCKER_FLAGS -d"
-      elif [[ -t 0 ]]; then
-          DOCKER_FLAGS="$DOCKER_FLAGS -it"
-      fi
-
-      DOCKER_SOCK="${HOME}/.docker/run/docker.sock"
-      if [ ! -S "$DOCKER_SOCK" ]; then
-          DOCKER_SOCK="/var/run/docker.sock"
-      fi
-
-      exec docker run $DOCKER_FLAGS \\
-          -v "$DOCKER_SOCK:/var/run/docker.sock" \\
-          -v "$HOME/.config/brainbox:/home/developer/.config" \\
-          -v "$PWD:/workspace" \\
-          "$BRAINBOX_IMAGE" \\
-          brainbox "$@"
+      case "$1" in
+        up|start)
+          exec docker compose -f "$COMPOSE_FILE" up -d
+          ;;
+        down|stop)
+          exec docker compose -f "$COMPOSE_FILE" down
+          ;;
+        logs)
+          exec docker compose -f "$COMPOSE_FILE" logs -f
+          ;;
+        status|ps)
+          exec docker compose -f "$COMPOSE_FILE" ps
+          ;;
+        pull)
+          exec docker compose -f "$COMPOSE_FILE" pull
+          ;;
+        version|--version|-v)
+          echo "brainbox $BRAINBOX_VERSION"
+          ;;
+        *)
+          echo "Usage: brainbox {up|start|down|stop|logs|status|pull|version}"
+          echo ""
+          echo "Commands:"
+          echo "  up/start   Start brainbox stack (API + Qdrant)"
+          echo "  down/stop  Stop brainbox stack"
+          echo "  logs       Follow logs from all services"
+          echo "  status     Show running containers"
+          echo "  pull       Pull latest images"
+          echo "  version    Show brainbox version"
+          exit 1
+          ;;
+      esac
     EOS
 
     chmod 0755, bin/"brainbox"
@@ -100,19 +75,17 @@ class Brainbox < Formula
       brainbox requires Docker to run. Please ensure Docker Desktop is running:
         open -a Docker
 
-      The first time you run brainbox, it will download the Docker image.
+      Start the brainbox stack:
+        brainbox up
 
-      Usage:
-        brainbox --help
-        brainbox provision myproject
-        brainbox api
+      The API will be available at http://localhost:9999
 
       Configuration is stored in ~/.config/brainbox
+      Qdrant data is stored in ~/.config/brainbox/qdrant (override with QDRANT_DATA_DIR)
     EOS
   end
 
   test do
-    # Test that Docker requirement is enforced
-    system "#{bin}/brainbox", "--help" if system "docker", "info"
+    assert_match "brainbox #{version}", shell_output("#{bin}/brainbox version")
   end
 end

@@ -116,6 +116,11 @@ USER developer
 
 RUN mkdir -p /home/developer/.azure
 
+# Kubernetes + Terraform (previously performer-only — now in unified image)
+USER root
+RUN brew install hashicorp/tap/terraform kubectl
+USER developer
+
 # =============================================================================
 # Shell configuration — ensure version managers work in interactive sessions
 # =============================================================================
@@ -172,12 +177,26 @@ RUN bash -c '. "$NVM_DIR/nvm.sh" && npm install -g @playwright/mcp' && \
 USER developer
 
 # =============================================================================
-# fastembed model cache — pre-download so PostToolUse hooks start instantly
+# websocat — SSH agent WebSocket relay for remote Docker mode
 # =============================================================================
-# The qdrant-websearch hook uses sentence-transformers/all-MiniLM-L6-v2 (384-dim).
-# Without pre-caching, the first hook run triggers a 30+ second download which
-# exceeds the 5-second hook timeout, causing silent failure.
-RUN uvx --python 3.12 --with fastembed python -c "\
+USER root
+RUN ARCH=$(uname -m) \
+    && case "$ARCH" in \
+        x86_64)  WSARCH="x86_64-unknown-linux-musl" ;; \
+        aarch64) WSARCH="aarch64-unknown-linux-musl" ;; \
+        *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
+    esac \
+    && curl -sL "https://github.com/vi/websocat/releases/latest/download/websocat.${WSARCH}" \
+       -o /usr/local/bin/websocat \
+    && chmod +x /usr/local/bin/websocat
+USER developer
+
+# =============================================================================
+# Hook Python dependencies — installed from requirements file so hook scripts
+# work out-of-the-box when delivered via config bundle at provision time
+# =============================================================================
+COPY docker/brainbox/hooks-requirements.txt /tmp/hooks-requirements.txt
+RUN uvx --python 3.12 --with-requirements /tmp/hooks-requirements.txt python -c "\
 from fastembed import TextEmbedding; \
 from pathlib import Path; \
 cache = str(Path.home() / '.cache' / 'fastembed'); \
@@ -186,7 +205,36 @@ list(m.embed(['warmup'])); \
 print('fastembed model cached')"
 
 # =============================================================================
-# Base image complete — role-specific Dockerfiles extend from here
+# MCP servers — pre-register binaries so Claude Code finds them
+# Claude config (settings.json, skills, hooks) is NOT baked in;
+# it is delivered at provision time via config bundle from the user's ~/.claude
 # =============================================================================
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add playwright -- npx @playwright/mcp --headless --browser chromium --no-sandbox'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add memory -- npx -y @modelcontextprotocol/server-memory'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add filesystem -- npx -y @modelcontextprotocol/server-filesystem /home/developer/workspace'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add github -- npx -y @modelcontextprotocol/server-github'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add brave-search -- npx -y @anthropic-ai/mcp-brave-search'
+RUN bash -c '. "$NVM_DIR/nvm.sh" && claude mcp add qdrant -- uvx --python 3.12 --with fastembed mcp-server-qdrant'
+
+# Skip onboarding and pre-trust common working directories
+RUN bash -c 'if [ -f /home/developer/.claude.json ]; then \
+      jq ". + {hasCompletedOnboarding: true, bypassPermissionsModeAccepted: true} | .projects[\"/home/developer/workspace\"] = (.projects[\"/home/developer/workspace\"] // {} | . + {hasTrustDialogAccepted: true}) | .projects[\"/home/developer/task-repo\"] = {allowedTools:[],mcpContextUris:[],hasTrustDialogAccepted:true,projectOnboardingSeenCount:0} | .projects[\"/home/developer\"] = {allowedTools:[],mcpContextUris:[],hasTrustDialogAccepted:true,projectOnboardingSeenCount:0}" /home/developer/.claude.json > /tmp/.claude.json.tmp && \
+      mv /tmp/.claude.json.tmp /home/developer/.claude.json; \
+    else \
+      echo "{\"hasCompletedOnboarding\":true,\"bypassPermissionsModeAccepted\":true,\"projects\":{\"/home/developer/workspace\":{\"allowedTools\":[],\"mcpContextUris\":[],\"hasTrustDialogAccepted\":true,\"projectOnboardingSeenCount\":0},\"/home/developer/task-repo\":{\"allowedTools\":[],\"mcpContextUris\":[],\"hasTrustDialogAccepted\":true,\"projectOnboardingSeenCount\":0},\"/home/developer\":{\"allowedTools\":[],\"mcpContextUris\":[],\"hasTrustDialogAccepted\":true,\"projectOnboardingSeenCount\":0}}}" > /home/developer/.claude.json; \
+    fi'
+
+# Shell config + ttyd wrapper
+COPY --chown=developer:developer docker/brainbox/setup/.bashrc /tmp/.bashrc.extra
+RUN cat /tmp/.bashrc.extra >> /home/developer/.bashrc && rm /tmp/.bashrc.extra
+
+COPY --chown=developer:developer docker/brainbox/setup/ttyd-wrapper.sh /home/developer/ttyd-wrapper.sh
+RUN chmod +x /home/developer/ttyd-wrapper.sh
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+  CMD pgrep -x "claude" > /dev/null || exit 1
+
+CMD ["/bin/bash", "-l"]
+
 ENV BASH_ENV=/home/developer/.env
 ENV DISABLE_AUTOUPDATER=1

@@ -693,6 +693,7 @@ async def api_create_session(
             backend=body.backend,
             vm_template=body.vm_template,
             ports=body.ports,
+            docker_host=body.docker_host,
         )
         _audit_log(request, "session.create", session_name=body.name, success=True)
 
@@ -1665,6 +1666,147 @@ async def api_langfuse_trace_detail(trace_id: str, _key=Depends(require_api_key)
             for o in observations
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# Credential proxy endpoints (for remote Docker mode)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/credentials/aws-token")
+@limiter.limit("30/minute")
+async def api_aws_token(request: Request, _token=Depends(require_token)):
+    """Return fresh AWS credentials in credential_process format.
+
+    Called automatically by the AWS SDK inside containers when credentials
+    expire. Fetches live credentials from the host's boto3 session so AWS SSO
+    tokens are always current without any bind mount.
+    """
+    try:
+        import boto3  # type: ignore[import]
+
+        session = boto3.Session()
+        creds = session.get_credentials()
+        if creds is None:
+            raise HTTPException(status_code=503, detail="No AWS credentials available on host")
+        frozen = creds.get_frozen_credentials()
+        expiry = getattr(frozen, "_expiry_time", None)
+        result: dict[str, Any] = {
+            "Version": 1,
+            "AccessKeyId": frozen.access_key,
+            "SecretAccessKey": frozen.secret_key,
+        }
+        if frozen.token:
+            result["SessionToken"] = frozen.token
+        if expiry:
+            result["Expiration"] = expiry.isoformat()
+        return result
+    except HTTPException:
+        raise
+    except ImportError:
+        raise HTTPException(status_code=503, detail="boto3 not installed on host")
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=f"Failed to fetch AWS credentials: {exc}")
+
+
+@app.websocket("/api/credentials/ssh-agent")
+async def api_ssh_agent_relay(websocket):
+    """WebSocket relay for SSH agent forwarding to remote Docker containers.
+
+    Bridges the host SSH agent socket to a WebSocket connection so containers
+    on remote Docker daemons can use SSH keys without copying private keys.
+    """
+    import asyncio
+
+    from fastapi import WebSocket
+    from fastapi.websockets import WebSocketState
+
+    ws: WebSocket = websocket
+    await ws.accept()
+
+    ssh_sock = os.environ.get("SSH_AUTH_SOCK")
+    if not ssh_sock:
+        await ws.close(1011, "SSH_AUTH_SOCK not available on server")
+        return
+
+    try:
+        reader, writer = await asyncio.open_unix_connection(ssh_sock)
+    except Exception as exc:
+        log.warning("ssh_relay.connect_failed", metadata={"reason": str(exc)})
+        await ws.close(1011, f"Cannot connect to SSH agent: {exc}")
+        return
+
+    async def forward_in() -> None:
+        """WebSocket → SSH agent."""
+        try:
+            async for data in ws.iter_bytes():
+                writer.write(data)
+                await writer.drain()
+        except Exception:
+            pass
+
+    async def forward_out() -> None:
+        """SSH agent → WebSocket."""
+        try:
+            while True:
+                chunk = await reader.read(4096)
+                if not chunk:
+                    break
+                if ws.client_state == WebSocketState.CONNECTED:
+                    await ws.send_bytes(chunk)
+        except Exception:
+            pass
+
+    try:
+        await asyncio.gather(forward_in(), forward_out())
+    finally:
+        writer.close()
+        if ws.client_state == WebSocketState.CONNECTED:
+            await ws.close()
+
+
+@app.post("/api/sessions/{name}/push-config")
+@limiter.limit("10/minute")
+async def api_push_config(request: Request, name: str, _key=Depends(require_api_key)):
+    """Re-inject translated ~/.claude config bundle into a running container.
+
+    Useful when the user updates plugins, skills, or settings mid-session
+    without reprovisioning the container.
+    """
+    try:
+        validate_session_name(name)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    from .bundle import build_config_bundle
+    from .backends import create_backend
+    from .lifecycle import get_session
+
+    ctx = get_session(name)
+    if ctx is None:
+        # Try to find by container name prefix
+        from .lifecycle import _sessions
+
+        for sess_name, sess_ctx in _sessions.items():
+            if sess_ctx.container_name == name or sess_name == name:
+                ctx = sess_ctx
+                break
+
+    if ctx is None:
+        raise HTTPException(status_code=404, detail=f"Session '{name}' not found")
+
+    try:
+        bundle = build_config_bundle(
+            workspace_home=ctx.workspace_home,
+            path_map=settings.path_map or None,
+        )
+        docker_backend = create_backend("docker")
+        await docker_backend.inject_config_bundle(ctx, bundle)
+        _audit_log(request, "session.push_config", session_name=name, success=True)
+        return {"success": True, "session": name}
+    except Exception as exc:
+        _audit_log(request, "session.push_config", session_name=name, success=False, error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------

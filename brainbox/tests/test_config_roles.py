@@ -11,23 +11,23 @@ from brainbox.config import Settings
 class TestResolvedImage:
     def test_default_developer(self):
         s = Settings(role="developer")
-        assert s.resolved_image == "brainbox-developer"
+        assert s.resolved_image == "ghcr.io/neverprepared/brainbox:latest"
 
     def test_researcher(self):
         s = Settings(role="researcher")
-        assert s.resolved_image == "brainbox-researcher"
+        assert s.resolved_image == "ghcr.io/neverprepared/brainbox:latest"
 
     def test_performer(self):
         s = Settings(role="performer")
-        assert s.resolved_image == "brainbox-performer"
+        assert s.resolved_image == "ghcr.io/neverprepared/brainbox:latest"
 
     def test_explicit_image_overrides_role(self):
         s = Settings(role="developer", image="my-custom-image")
         assert s.resolved_image == "my-custom-image"
 
-    def test_empty_image_falls_back_to_role(self):
+    def test_empty_image_falls_back_to_unified(self):
         s = Settings(role="researcher", image="")
-        assert s.resolved_image == "brainbox-researcher"
+        assert s.resolved_image == "ghcr.io/neverprepared/brainbox:latest"
 
 
 class TestResolvedPrefix:

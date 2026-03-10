@@ -85,11 +85,7 @@ async def submit_task(
         raise ValueError(f"Policy denied: {check.reason}")
 
     # Use longer TTL for persistent agents
-    ttl = (
-        settings.hub.persistent_token_ttl
-        if agent_def.persistent
-        else settings.hub.token_ttl
-    )
+    ttl = settings.hub.persistent_token_ttl if agent_def.persistent else settings.hub.token_ttl
     token = issue_token(agent_name, task_id, ttl=ttl)
     task.token_id = token.token_id
 

@@ -10,7 +10,6 @@ import json
 import stat
 import time
 import uuid
-from pathlib import Path
 
 from .config import settings
 from .log import get_logger

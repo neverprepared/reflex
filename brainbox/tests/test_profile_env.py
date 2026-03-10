@@ -288,7 +288,7 @@ class TestResolveProfileMounts:
             patch.dict("os.environ", {"WORKSPACE_HOME": str(tmp_path)}, clear=True),
             patch("brainbox.lifecycle.settings") as mock_settings,
         ):
-            mock_settings.profile = ProfileSettings()
+            mock_settings.profile = ProfileSettings(mount_reflex=False)
             result = _resolve_profile_mounts()
         assert result == {}
 
@@ -310,6 +310,7 @@ class TestResolveProfileMounts:
                 mount_kube=False,
                 mount_ssh=False,
                 mount_gitconfig=False,
+                mount_reflex=False,
             )
             result = _resolve_profile_mounts()
         assert result == {}

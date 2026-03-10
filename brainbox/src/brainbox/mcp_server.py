@@ -115,6 +115,7 @@ def create_session(
     name: str = "default",
     volume: str | None = None,
     role: str = "developer",
+    docker_host: str | None = None,
 ) -> dict[str, Any]:
     """Create and start a new container session.
 
@@ -129,10 +130,13 @@ def create_session(
         name: Session name (container will be named developer-{name})
         volume: Optional host:container volume mount (e.g. /path/to/code:/workspace)
         role: Agent role — controls the system prompt injected into the container
+        docker_host: Docker daemon URL (e.g. tcp://remote:2376). None = local socket.
     """
     body: dict[str, Any] = {"name": name, "role": role}
     if volume:
         body["volume"] = volume
+    if docker_host:
+        body["docker_host"] = docker_host
     return _request("POST", "/api/create", body)
 
 
@@ -164,6 +168,19 @@ def delete_session(name: str) -> dict[str, Any]:
         name: Container name (e.g. developer-default)
     """
     return _request("POST", "/api/delete", {"name": name})
+
+
+@mcp.tool()
+def push_config(name: str) -> dict[str, Any]:
+    """Re-inject translated ~/.claude config bundle into a running container.
+
+    Use this after updating plugins, skills, hooks, or settings in ~/.claude
+    to propagate changes without reprovisioning the container.
+
+    Args:
+        name: Session name (e.g. default) or container name (e.g. developer-default)
+    """
+    return _request("POST", f"/api/sessions/{name}/push-config")
 
 
 @mcp.tool()
@@ -556,13 +573,15 @@ def multiclaude_status() -> dict[str, Any]:
     by_role: dict[str, list[dict]] = {}
     for task in active_tasks:
         role = task.get("agent_name", "unknown")
-        by_role.setdefault(role, []).append({
-            "id": task.get("id"),
-            "status": task.get("status"),
-            "description": (task.get("description") or "")[:120],
-            "repo_url": task.get("repo_url"),
-            "created_at": task.get("created_at"),
-        })
+        by_role.setdefault(role, []).append(
+            {
+                "id": task.get("id"),
+                "status": task.get("status"),
+                "description": (task.get("description") or "")[:120],
+                "repo_url": task.get("repo_url"),
+                "created_at": task.get("created_at"),
+            }
+        )
 
     repos = [
         {

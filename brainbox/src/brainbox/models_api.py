@@ -27,6 +27,7 @@ class CreateSessionRequest(BaseModel):
     backend: str = "docker"  # "docker" or "utm"
     vm_template: str | None = None  # UTM only: template VM name
     ports: dict[str, int] | None = None  # Additional port mappings (container_port: host_port)
+    docker_host: str | None = None  # Docker daemon host (None = local socket)
 
     @field_validator("name")
     @classmethod
@@ -133,6 +134,7 @@ class QuerySessionRequest(BaseModel):
 
 class CreateRepoRequest(BaseModel):
     """Request model for POST /api/hub/repos endpoint."""
+
     url: str = Field(..., description="GitHub repo URL")
     name: str | None = Field(None, description="Short name (derived from URL if omitted)")
     merge_queue: bool = Field(False, description="Enable merge-queue agent")
@@ -140,7 +142,9 @@ class CreateRepoRequest(BaseModel):
     target_branch: str = Field("main", description="Target branch for merges")
     is_fork: bool = Field(False, description="Whether this is a fork repo")
     upstream_url: str | None = Field(None, description="Upstream repo URL (for forks)")
-    workspace_home: str | None = Field(None, description="Workspace home path for credential mounts (SSH, git, cloud)")
+    workspace_home: str | None = Field(
+        None, description="Workspace home path for credential mounts (SSH, git, cloud)"
+    )
     workspace_profile: str | None = Field(None, description="Workspace profile name")
 
     @field_validator("url")
@@ -156,6 +160,7 @@ class CreateRepoRequest(BaseModel):
 
 class UpdateRepoRequest(BaseModel):
     """Request model for PATCH /api/hub/repos/{name} endpoint."""
+
     merge_queue: bool | None = None
     pr_shepherd: bool | None = None
     target_branch: str | None = None

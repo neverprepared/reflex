@@ -19,12 +19,13 @@ class AgentRole(str, Enum):
     Attribution: Role system originated from Dan Lorenc's multiclaude project
     (github.com/dlorenc/multiclaude).
     """
-    DEVELOPER = "developer"       # Interactive session (existing default)
-    SUPERVISOR = "supervisor"     # Orchestrates agents, persistent
-    WORKER = "worker"            # Task executor, transient
+
+    DEVELOPER = "developer"  # Interactive session (existing default)
+    SUPERVISOR = "supervisor"  # Orchestrates agents, persistent
+    WORKER = "worker"  # Task executor, transient
     MERGE_QUEUE = "merge-queue"  # PR automation, persistent
     PR_SHEPHERD = "pr-shepherd"  # Fork PR coordination, persistent
-    REVIEWER = "reviewer"        # Code review, transient
+    REVIEWER = "reviewer"  # Code review, transient
 
 
 class AgentDefinition(BaseModel):
@@ -93,6 +94,7 @@ class SessionContext(BaseModel):
     workspace_home: str | None = None  # Caller's workspace home path
     # Backend-specific fields
     backend: str = "docker"  # "docker" or "utm"
+    docker_host: str | None = None  # Docker daemon host (None = local socket)
     ports: dict[str, int] | None = None  # Additional port mappings (container_port: host_port)
     ssh_port: int | None = None  # UTM only: SSH port for VM access (deprecated - use vm_ip)
     ssh_user: str = "developer"  # UTM SSH username
@@ -145,6 +147,7 @@ class Repository(BaseModel):
 
     Attribution: Multi-repo awareness originated from Dan Lorenc's multiclaude project.
     """
+
     url: str  # GitHub repo URL (e.g., "https://github.com/owner/repo")
     name: str  # Short name derived from URL (e.g., "repo")
     containers: dict[str, str] = Field(default_factory=dict)  # role -> session_name
@@ -153,7 +156,7 @@ class Repository(BaseModel):
     target_branch: str = "main"
     is_fork: bool = False
     upstream_url: str | None = None
-    workspace_home: str | None = None   # Caller's workspace home (for credential mounts)
+    workspace_home: str | None = None  # Caller's workspace home (for credential mounts)
     workspace_profile: str | None = None  # Caller's workspace profile name
 
 

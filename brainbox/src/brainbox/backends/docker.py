@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 import shlex
+import textwrap
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -23,9 +24,12 @@ _executor = ThreadPoolExecutor(max_workers=4)
 log = get_logger()
 
 
-def _docker() -> docker.DockerClient:
-    """Get or create Docker client singleton."""
+def _docker(docker_host: str | None = None) -> docker.DockerClient:
+    """Get or create Docker client, optionally targeting a remote host."""
     global _client
+    if docker_host:
+        # Remote host: create a fresh client (not cached — could be per-session)
+        return docker.DockerClient(base_url=docker_host)
     if _client is None:
         macos_sock = Path.home() / ".docker" / "run" / "docker.sock"
         if macos_sock.is_socket():
@@ -79,14 +83,23 @@ class DockerBackend:
     ) -> SessionContext:
         """Create Docker container with specified image and volumes."""
         slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
-        client = _docker()
+        client = _docker(ctx.docker_host)
 
-        # Check image exists
+        # Always pull latest image before provision (ensures up-to-date; falls back to cache)
         try:
-            await _run(client.images.get, image_or_template)
-        except Exception as exc:
-            slog.error("container.provision_failed", metadata={"reason": str(exc)})
-            raise
+            await _run(client.images.pull, image_or_template)
+            slog.info("container.image_pulled", metadata={"image": image_or_template})
+        except Exception as pull_exc:
+            slog.warning(
+                "container.image_pull_failed",
+                metadata={"image": image_or_template, "reason": str(pull_exc)},
+            )
+            # Fall back to locally cached image
+            try:
+                await _run(client.images.get, image_or_template)
+            except Exception as exc:
+                slog.error("container.provision_failed", metadata={"reason": str(exc)})
+                raise
 
         # Remove existing container if present
         try:
@@ -114,6 +127,9 @@ class DockerBackend:
                 "brainbox.llm_provider": ctx.llm_provider,
                 "brainbox.llm_model": ctx.llm_model or "",
                 "brainbox.workspace_profile": (ctx.workspace_profile or "").upper(),
+            },
+            "environment": {
+                "BRAINBOX_ROLE": ctx.role,
             },
             "detach": True,
             "volumes": volumes,
@@ -151,7 +167,7 @@ class DockerBackend:
     ) -> SessionContext:
         """Write secrets and configuration to Docker container."""
         slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
-        client = _docker()
+        client = _docker(ctx.docker_host)
         container = await _run(client.containers.get, ctx.container_name)
 
         # Start container temporarily if not running (needed for exec)
@@ -341,7 +357,7 @@ class DockerBackend:
                 task_with_footer = (
                     ctx.task_description
                     + "\n\nWhen your task is fully complete (PR opened or final output delivered), "
-                    "run this to notify the hub: ~/.brainbox/complete.sh \"<brief result summary>\""
+                    'run this to notify the hub: ~/.brainbox/complete.sh "<brief result summary>"'
                 )
                 await _run(
                     container.exec_run,
@@ -356,38 +372,14 @@ class DockerBackend:
                         f" && chmod 755 /home/developer/.brainbox/complete.sh",
                     ],
                 )
-                slog.info("container.task_injected", metadata={"task_len": len(ctx.task_description)})
+                slog.info(
+                    "container.task_injected", metadata={"task_len": len(ctx.task_description)}
+                )
             except Exception as exc:
                 slog.warning("container.task_injection_failed", metadata={"reason": str(exc)})
 
-        # Copy staged Claude config to ~/.claude, excluding settings.local.json
-        try:
-            staging = "/opt/brainbox/claude-host-config"
-            dest = "/home/developer/.claude"
-            result = await _run(
-                container.exec_run,
-                ["test", "-d", staging],
-            )
-            if result.exit_code == 0:
-                await _run(
-                    container.exec_run,
-                    [
-                        "sh",
-                        "-c",
-                        f"cp -r {staging}/. {dest}/"
-                        f" && rm -f {dest}/settings.local.json"
-                        # Merge bypassPermissions into settings.json (create if absent)
-                        f" && if [ -f {dest}/settings.json ]; then"
-                        f"   tmp=$(mktemp) && jq '. + {{\"bypassPermissions\": true}}' {dest}/settings.json > \"$tmp\" && mv \"$tmp\" {dest}/settings.json;"
-                        f" else"
-                        f"   echo '{{\"bypassPermissions\": true}}' > {dest}/settings.json;"
-                        f" fi",
-                    ],
-                    user="developer",
-                )
-                slog.info("container.claude_config_staged")
-        except Exception as exc:
-            slog.warning("container.claude_config_stage_failed", metadata={"reason": str(exc)})
+        # Claude config is delivered via inject_config_bundle() before configure() runs —
+        # no staging copy needed here. bypassPermissions is already forced in the bundle.
 
         ctx.state = SessionState.STARTING
         slog.info("container.configured", metadata={"hardened": ctx.hardened})
@@ -398,7 +390,7 @@ class DockerBackend:
         from ..lifecycle import _resolve_profile_env
 
         slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
-        client = _docker()
+        client = _docker(ctx.docker_host)
 
         container = await _run(client.containers.get, ctx.container_name)
 
@@ -465,7 +457,7 @@ class DockerBackend:
 
     async def stop(self, ctx: SessionContext) -> SessionContext:
         """Stop Docker container."""
-        client = _docker()
+        client = _docker(ctx.docker_host)
         try:
             container = await _run(client.containers.get, ctx.container_name)
             await _run(container.stop, timeout=5)
@@ -476,7 +468,7 @@ class DockerBackend:
     async def remove(self, ctx: SessionContext) -> SessionContext:
         """Remove Docker container."""
         slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
-        client = _docker()
+        client = _docker(ctx.docker_host)
 
         try:
             container = await _run(client.containers.get, ctx.container_name)
@@ -489,7 +481,7 @@ class DockerBackend:
 
     async def health_check(self, ctx: SessionContext) -> dict[str, Any]:
         """Check Docker container health and collect CPU/memory metrics."""
-        client = _docker()
+        client = _docker(ctx.docker_host)
 
         try:
             container = await _run(client.containers.get, ctx.container_name)
@@ -538,7 +530,7 @@ class DockerBackend:
         self, ctx: SessionContext, command: list[str], **kwargs: Any
     ) -> tuple[int, bytes]:
         """Execute command in Docker container via docker exec."""
-        client = _docker()
+        client = _docker(ctx.docker_host)
         container = await _run(client.containers.get, ctx.container_name)
 
         # Run exec_run with kwargs (detach, user, etc.)
@@ -552,6 +544,97 @@ class DockerBackend:
             exit_code = result.exit_code if hasattr(result, "exit_code") else 0
             output = result.output if hasattr(result, "output") else b""
             return (exit_code, output)
+
+    async def inject_config_bundle(self, ctx: SessionContext, bundle_bytes: bytes) -> None:
+        """Inject translated ~/.claude config bundle into the container via put_archive."""
+        slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
+        client = _docker(ctx.docker_host)
+        try:
+            container = await _run(client.containers.get, ctx.container_name)
+            # put_archive on stopped container is fine — no exec needed
+            await _run(container.put_archive, "/home/developer", bundle_bytes)
+            # Fix ownership — tar is assembled with host uid, container user = developer
+            await _run(
+                container.exec_run,
+                [
+                    "sh",
+                    "-c",
+                    "chown -R developer:developer"
+                    " /home/developer/.claude"
+                    " /home/developer/.gitconfig"
+                    " /home/developer/.mcp.json"
+                    " 2>/dev/null || true",
+                ],
+                user="root",
+            )
+            slog.info("container.config_bundle_injected")
+        except Exception as exc:
+            slog.warning("container.config_bundle_inject_failed", metadata={"reason": str(exc)})
+
+    async def inject_remote_credentials(self, ctx: SessionContext) -> None:
+        """Set up credential proxies for remote Docker mode.
+
+        - AWS: credential_process pointing to /api/credentials/aws-token
+        - SSH: websocat relay connecting unix socket to WebSocket endpoint
+        """
+        from ..config import settings
+
+        slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
+        client = _docker(ctx.docker_host)
+        try:
+            container = await _run(client.containers.get, ctx.container_name)
+        except Exception as exc:
+            slog.warning(
+                "container.remote_credentials_failed",
+                metadata={"reason": str(exc)},
+            )
+            return
+
+        hub_url = f"http://host.docker.internal:{settings.api_port}"
+
+        # AWS credential_process — SDK calls this on token expiry for always-fresh creds
+        aws_config = textwrap.dedent(f"""\
+            [default]
+            credential_process = sh -c 'curl -sf \\
+              -H "Authorization: Bearer $(cat /home/developer/.agent-token 2>/dev/null)" \\
+              {hub_url}/api/credentials/aws-token'
+        """)
+        try:
+            await _run(
+                container.exec_run,
+                [
+                    "sh",
+                    "-c",
+                    f"mkdir -p /home/developer/.aws"
+                    f" && printf '%s' {shlex.quote(aws_config)} > /home/developer/.aws/config",
+                ],
+                user="developer",
+            )
+        except Exception as exc:
+            slog.warning("container.aws_credential_process_failed", metadata={"reason": str(exc)})
+
+        # SSH agent WebSocket relay — websocat proxies unix socket to brainbox API
+        # The relay runs in background; SSH_AUTH_SOCK points to the local unix socket
+        hub_host = "host.docker.internal"
+        hub_port = settings.api_port
+        ssh_setup = textwrap.dedent(f"""\
+            TOKEN=$(cat /home/developer/.agent-token 2>/dev/null || echo "")
+            nohup websocat -b unix-l:/tmp/ssh-agent.sock \\
+              "ws://{hub_host}:{hub_port}/api/credentials/ssh-agent" \\
+              --header "Authorization: Bearer $TOKEN" \\
+              >/dev/null 2>&1 &
+            echo 'export SSH_AUTH_SOCK=/tmp/ssh-agent.sock' >> /home/developer/.env
+        """)
+        try:
+            await _run(
+                container.exec_run,
+                ["sh", "-c", ssh_setup],
+                user="developer",
+            )
+        except Exception as exc:
+            slog.warning("container.ssh_relay_failed", metadata={"reason": str(exc)})
+
+        slog.info("container.remote_credentials_injected")
 
     def get_sessions_info(self) -> list[dict[str, Any]]:
         """List all managed Docker containers."""

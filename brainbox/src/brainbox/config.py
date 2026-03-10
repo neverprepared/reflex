@@ -141,6 +141,12 @@ class HubSettings(BaseSettings):
     persistent_token_ttl: int = 86400  # 24h TTL for persistent agent tokens
 
 
+class DockerSettings(BaseSettings):
+    host: str | None = None  # None = auto-detect local socket
+    tls_verify: bool = True
+    cert_path: str | None = None
+
+
 class Settings(BaseSettings):
     role: str = "developer"
     image: str = ""
@@ -166,12 +172,16 @@ class Settings(BaseSettings):
     hub: HubSettings = Field(default_factory=HubSettings)
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     utm: UTMSettings = Field(default_factory=UTMSettings)
+    docker: DockerSettings = Field(default_factory=DockerSettings)
+    path_map: dict[str, str] = Field(
+        default_factory=dict
+    )  # host path → container path substitutions
 
     model_config = {"env_prefix": "CL_", "env_nested_delimiter": "__"}
 
     @property
     def resolved_image(self) -> str:
-        return self.image or f"brainbox-{self.role}"
+        return self.image or "ghcr.io/neverprepared/brainbox:latest"
 
     @property
     def resolved_prefix(self) -> str:

@@ -2,8 +2,14 @@ name: Publish Brainbox Docker Image
 
 on:
   push:
+    branches: [main]
+    paths:
+      - "docker/brainbox/**"
+      - "reflex/plugins/reflex/scripts/**"
+      - "docker/brainbox/hooks-requirements.txt"
     tags:
-      - 'brainbox/v*'
+      - "brainbox/v*"
+      - "reflex-v*"
   workflow_dispatch:
     inputs:
       tag:

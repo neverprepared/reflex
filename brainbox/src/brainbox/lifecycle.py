@@ -205,7 +205,13 @@ def _build_volume_map(env_vars: dict) -> dict[str, dict[str, str]]:
             home / ".kube",
             True,
         ),
-        (p.mount_ssh, "ssh", [], ws_path / ".ssh" if (ws_path / ".ssh").is_dir() else Path.home() / ".ssh", False),
+        (
+            p.mount_ssh,
+            "ssh",
+            [],
+            ws_path / ".ssh" if (ws_path / ".ssh").is_dir() else Path.home() / ".ssh",
+            False,
+        ),
         (
             p.mount_gitconfig,
             "gitconfig",
@@ -270,12 +276,8 @@ def _build_volume_map(env_vars: dict) -> dict[str, dict[str, str]]:
             if host_dir is not None:
                 mounts[str(host_dir)] = {"bind": container_targets[name], "mode": mode}
 
-    # Claude config dir: mount workspace .claude to a staging path; configure()
-    # copies it to ~/.claude excluding settings.local.json (host-specific).
-    if p.mount_claude_config:
-        claude_config = ws_path / ".claude"
-        if claude_config.is_dir():
-            mounts[str(claude_config)] = {"bind": "/opt/brainbox/claude-host-config", "mode": "ro"}
+    # Claude config is delivered via config bundle at provision time (not bind mount)
+    # so we do NOT add a staging mount here.
 
     # Reflex share dir: mount so hooks/skills inside the container can invoke
     # the same reflex runtime that the host uses.
@@ -436,6 +438,17 @@ def _find_available_port(start: int = 7681) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Local vs remote Docker detection
+# ---------------------------------------------------------------------------
+
+
+def _docker_is_local(docker_host: str | None = None) -> bool:
+    """Return True when the Docker daemon is local (unix socket or no host set)."""
+    host = docker_host or settings.docker.host or ""
+    return not host or host.startswith("unix://") or host.startswith("/")
+
+
+# ---------------------------------------------------------------------------
 # Cosign verification
 # ---------------------------------------------------------------------------
 
@@ -545,6 +558,7 @@ async def provision(
     ports: dict[str, int] | None = None,
     repo_url: str | None = None,
     task_description: str | None = None,
+    docker_host: str | None = None,
 ) -> SessionContext:
     from .backends import create_backend
 
@@ -560,11 +574,12 @@ async def provision(
         # UTM uses SSH port, not web terminal port
         resolved_port = port or 0  # Will be assigned by backend
     else:
-        image_or_template = settings.image or f"brainbox-{resolved_role}"
+        # Single unified image — role is injected as BRAINBOX_ROLE env var
+        image_or_template = settings.image or "ghcr.io/neverprepared/brainbox:latest"
         resolved_port = port or _find_available_port()
 
     # Resolve role prompt and teams configuration
-    from .registry import get_agent, get_role_prompt
+    from .registry import get_agent
 
     teams_enabled = settings.hub.enable_teams
     role_prompt_file = None
@@ -595,6 +610,7 @@ async def provision(
         role_prompt_file=role_prompt_file,
         repo_url=repo_url,
         task_description=task_description,
+        docker_host=docker_host,
     )
 
     slog = get_logger(session_name=session_name, container_name=container_name)
@@ -830,6 +846,7 @@ async def run_pipeline(
     ports: dict[str, int] | None = None,
     repo_url: str | None = None,
     task_description: str | None = None,
+    docker_host: str | None = None,
 ) -> SessionContext:
     ctx = await provision(
         session_name=session_name,
@@ -849,7 +866,25 @@ async def run_pipeline(
         ports=ports,
         repo_url=repo_url,
         task_description=task_description,
+        docker_host=docker_host,
     )
+
+    # Inject config bundle (always — both local and remote Docker)
+    if backend == "docker":
+        from .bundle import build_config_bundle
+        from .backends import create_backend
+
+        bundle = build_config_bundle(
+            workspace_home=workspace_home,
+            path_map=settings.path_map or None,
+        )
+        docker_backend = create_backend("docker")
+        await docker_backend.inject_config_bundle(ctx, bundle)
+
+        # Remote Docker: inject live credential proxies instead of bind mounts
+        if not _docker_is_local(docker_host):
+            await docker_backend.inject_remote_credentials(ctx)
+
     await configure(ctx)
     await start(ctx)
     await monitor(ctx)
