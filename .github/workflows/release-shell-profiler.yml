@@ -119,7 +119,7 @@ jobs:
       - name: Update formula in monorepo
         run: |
           VERSION="${{ needs.resolve.outputs.version }}"
-          FORMULA="shell-profiler/Formula/shell-profiler.rb"
+          FORMULA="Formula/shell-profiler.rb"
 
           DARWIN_ARM64=$(awk '{print $1}' artifacts/*darwin-arm64*.sha256)
           DARWIN_AMD64=$(awk '{print $1}' artifacts/*darwin-amd64*.sha256)
@@ -136,19 +136,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add shell-profiler/Formula/shell-profiler.rb
+          git add Formula/shell-profiler.rb
           git diff --cached --quiet || git commit -m "formula: update shell-profiler to v${{ needs.resolve.outputs.version }}"
           git push
 
-      - name: Sync formula to homebrew tap
-        run: |
-          VERSION="${{ needs.resolve.outputs.version }}"
-          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-ink-bunny.git /tmp/tap
-          mkdir -p /tmp/tap/Formula
-          cp shell-profiler/Formula/shell-profiler.rb /tmp/tap/Formula/shell-profiler.rb
-          cd /tmp/tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --quiet || git commit -m "formula: update shell-profiler to v${VERSION}"
-          git push

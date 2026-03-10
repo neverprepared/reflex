@@ -146,7 +146,11 @@ No build commands. Architecture documents are organized by phase:
 | brainbox | Homebrew (`neverprepared/ink-bunny`) | `brainbox/vX.Y.Z` |
 | reflex | Plugin marketplace + Homebrew (`neverprepared/ink-bunny`) | `reflex/vX.Y.Z` |
 
-All formulas are distributed via a single consolidated tap: `brew install neverprepared/ink-bunny/<package>`. Formulas live in `<package>/Formula/` in the monorepo and are synced to `neverprepared/homebrew-ink-bunny` on release.
+The monorepo itself is the Homebrew tap. Formulas live in the top-level `Formula/` directory. Tap and install with:
+```
+brew tap neverprepared/ink-bunny https://github.com/neverprepared/ink-bunny
+brew install neverprepared/ink-bunny/brainbox   # or reflex, shell-profiler
+```
 
 ## Conventions
 
@@ -174,7 +178,7 @@ No AI attribution — no "Generated with Claude Code" footers, no Co-Authored-By
 
 ### CI/CD
 
-Path-filtered CI runs on PR/push to main. Release workflows trigger on scoped tags (`<package>/v*`). Each release workflow builds artifacts, uploads to GitHub release, updates the formula, and syncs to the corresponding Homebrew tap repo.
+Path-filtered CI runs on PR/push to main. Release workflows trigger on scoped tags (`<package>/v*`). Each release workflow builds artifacts, uploads to GitHub release, and updates the formula in `Formula/` in the monorepo (no separate tap repo sync needed).
 
 ### Workflow Patterns
 

@@ -83,7 +83,7 @@ jobs:
           TAG="${{ needs.publish.outputs.tag_name }}"
           URL="https://github.com/neverprepared/ink-bunny/releases/download/${TAG}/reflex-${VERSION}.tar.gz"
           SHA=$(curl -sL "$URL" | sha256sum | awk '{print $1}')
-          FORMULA="reflex/Formula/reflex.rb"
+          FORMULA="Formula/reflex.rb"
           sed -i "s|url \".*\"|url \"${URL}\"|" "$FORMULA"
           sed -i "s/sha256 \".*\"/sha256 \"${SHA}\"/" "$FORMULA"
 
@@ -91,20 +91,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add reflex/Formula/reflex.rb
+          git add Formula/reflex.rb
           git diff --cached --quiet || git commit -m "formula: update reflex to v${{ needs.publish.outputs.version }}"
           git push
 
-      - name: Sync formula to homebrew tap
-        run: |
-          VERSION="${{ needs.publish.outputs.version }}"
-          TAG="${{ needs.publish.outputs.tag_name }}"
-          git clone https://x-access-token:${{ secrets.TAP_TOKEN }}@github.com/neverprepared/homebrew-ink-bunny.git /tmp/tap
-          mkdir -p /tmp/tap/Formula
-          cp reflex/Formula/reflex.rb /tmp/tap/Formula/reflex.rb
-          cd /tmp/tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -A
-          git diff --cached --quiet || git commit -m "formula: update reflex to v${VERSION}"
-          git push
