@@ -364,11 +364,15 @@ def _resolve_profile_env(
     if not profile:
         return None
 
-    # Try tmpdir cache first (works when API runs on host)
+    # Try tmpdir cache (works when API runs on host)
     tmpdir = os.environ.get("TMPDIR", "/tmp")
     cache_env = Path(tmpdir) / "sp-profiles" / profile / ".env"
 
-    # Fall back to workspace_home/.env (works when API runs in Docker)
+    # When running in Docker, the host TMPDIR is mounted at /host-sp-profiles
+    if not cache_env.is_file():
+        cache_env = Path("/host-sp-profiles") / profile / ".env"
+
+    # Last resort: workspace_home/.env (unrendered but better than nothing)
     if not cache_env.is_file() and workspace_home:
         cache_env = Path(workspace_home) / ".env"
 

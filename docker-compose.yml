@@ -19,12 +19,17 @@ services:
       - "${WORKSPACES_HOME}:${WORKSPACES_HOME}:ro"
       # Docker socket — DooD for session container management
       - "/var/run/docker.sock:/var/run/docker.sock"
+      # shell-profiler rendered env cache (secrets resolved from 1Password etc.)
+      # Mounted read-only so _resolve_profile_env can find $TMPDIR/sp-profiles inside the container.
+      - "${TMPDIR:-/tmp}sp-profiles:/host-sp-profiles:ro"
     environment:
       # Pass through host env vars unchanged so paths resolve identically inside the container
       - XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-${HOME}/.config}
       - WORKSPACES_HOME=${WORKSPACES_HOME}
       # Real host $HOME for path translation (Path.home() returns /root inside container)
       - HOST_HOME=${HOME}
+      # Host TMPDIR for sp-profiles cache (macOS uses /var/folders/... not /tmp)
+      - HOST_TMPDIR=${TMPDIR:-/tmp}
       # SSH agent socket (Docker Desktop for Mac)
       - SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock
     networks:
