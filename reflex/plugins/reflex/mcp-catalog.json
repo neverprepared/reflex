@@ -219,8 +219,13 @@
       "url": "https://github.com/neverprepared/ink-bunny",
       "requires": [],
       "definition": {
-        "command": "brainbox",
-        "args": ["mcp"],
+        "command": "uvx",
+        "args": [
+          "--from", "git+https://github.com/neverprepared/ink-bunny#subdirectory=brainbox",
+          "--extra", "mcp",
+          "brainbox",
+          "mcp"
+        ],
         "env": {
           "BRAINBOX_URL": "${BRAINBOX_URL:-http://127.0.0.1:9999}"
         }
