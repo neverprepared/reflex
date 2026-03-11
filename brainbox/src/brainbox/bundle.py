@@ -44,8 +44,8 @@ FORCED_SETTINGS: dict[str, Any] = {
 def _default_path_map() -> dict[str, str]:
     """Build default host→container path substitutions from environment."""
     # When running inside the brainbox-api container, Path.home() returns /root.
-    # BRAINBOX_HOST_HOME carries the actual host user home for path translation.
-    home = os.environ.get("BRAINBOX_HOST_HOME") or str(Path.home())
+    # HOST_HOME carries the actual host user home for path translation.
+    home = os.environ.get("HOST_HOME") or str(Path.home())
     ws = os.environ.get("WORKSPACE_HOME", home)
     claude_config = os.environ.get("CLAUDE_CONFIG_DIR", home + "/.claude")
 
@@ -104,9 +104,9 @@ def _build_container_settings(
 ) -> str:
     """Load user settings.json, apply translations, force container overrides.
 
-    MCP servers are merged from three sources (later wins on collision):
-      1. settings.json mcpServers (workspace-specific, path-translated)
-      2. ~/.claude.json mcpServers (user-level, path-translated)
+    MCP servers from settings.json and CLAUDE_CONFIG_DIR/.claude.json are merged
+    (settings.json wins on collision). The .claude.json path is per-profile —
+    it lives inside CLAUDE_CONFIG_DIR which is already mounted by docker-compose.
     """
     user: dict = {}
     if settings_path.exists():
@@ -244,11 +244,10 @@ def build_config_bundle(
 
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
         # settings.json — translated + forced overrides
-        # BRAINBOX_HOST_HOME is set by docker-compose so Path.home() (/root)
-        # doesn't shadow the real host home where .claude.json lives.
-        host_home = Path(os.environ.get("BRAINBOX_HOST_HOME") or Path.home())
+        # .claude.json lives inside the workspace CLAUDE_CONFIG_DIR so it's
+        # per-profile and already mounted by docker-compose (no extra mounts needed).
         settings_json = _build_container_settings(
-            claude_dir / "settings.json", host_home / ".claude.json", resolved_map
+            claude_dir / "settings.json", claude_dir / ".claude.json", resolved_map
         )
         _add_bytes(tf, ".claude/settings.json", settings_json.encode())
 

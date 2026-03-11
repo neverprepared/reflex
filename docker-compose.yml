@@ -13,25 +13,18 @@ services:
       # API config (sessions, api key, state) — mounted at the same path as on the host
       # so that session container bind mounts reference real host paths.
       - "${XDG_CONFIG_HOME:-${HOME}/.config}:${XDG_CONFIG_HOME:-${HOME}/.config}"
-      # Claude config for bundle assembly — read-only
-      - "${CLAUDE_CONFIG_DIR:-${HOME}/.claude}:${CLAUDE_CONFIG_DIR:-${HOME}/.claude}:ro"
-      # User-level Claude state (mcpServers, auth) — read-only for bundle assembly
-      - "${HOME}/.claude.json:${HOME}/.claude.json:ro"
-      # Live credentials — read-only (bundle.py reads these for the config bundle)
-      - "${WORKSPACE_HOME:-${HOME}}/.aws:${WORKSPACE_HOME:-${HOME}}/.aws:ro"
-      - "${WORKSPACE_HOME:-${HOME}}/.ssh:${WORKSPACE_HOME:-${HOME}}/.ssh:ro"
-      - "${WORKSPACE_HOME:-${HOME}}/.gitconfig:${WORKSPACE_HOME:-${HOME}}/.gitconfig:ro"
-      - "${WORKSPACE_HOME:-${HOME}}/.azure:${WORKSPACE_HOME:-${HOME}}/.azure:ro"
-      - "${WORKSPACE_HOME:-${HOME}}/.kube:${WORKSPACE_HOME:-${HOME}}/.kube:ro"
+      # All workspace profiles — read-only, enables multi-profile parallel containers.
+      # bundle.py reads each profile's .claude/, .ssh/, .aws/ etc. via workspace_home
+      # passed per-request. Set WORKSPACES_HOME to the parent of your profiles dir.
+      - "${WORKSPACES_HOME}:${WORKSPACES_HOME}:ro"
       # Docker socket — DooD for session container management
       - "/var/run/docker.sock:/var/run/docker.sock"
     environment:
       # Pass through host env vars unchanged so paths resolve identically inside the container
       - XDG_CONFIG_HOME=${XDG_CONFIG_HOME:-${HOME}/.config}
-      - CLAUDE_CONFIG_DIR=${CLAUDE_CONFIG_DIR:-${HOME}/.claude}
-      - WORKSPACE_HOME=${WORKSPACE_HOME:-${HOME}}
-      # Host home dir — used by bundle.py for path translation (Path.home() returns /root in container)
-      - BRAINBOX_HOST_HOME=${HOME}
+      - WORKSPACES_HOME=${WORKSPACES_HOME}
+      # Real host $HOME for path translation (Path.home() returns /root inside container)
+      - HOST_HOME=${HOME}
       # SSH agent socket (Docker Desktop for Mac)
       - SSH_AUTH_SOCK=/run/host-services/ssh-auth.sock
     networks:
