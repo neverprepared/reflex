@@ -15,12 +15,28 @@ from .validation import (
 
 
 class RepoConfig(BaseModel):
-    """Repo access configuration for container sessions."""
+    """Repo access configuration for container sessions.
 
-    url: str  # local path (worktree-mount) or git remote URL (clone/clone-worktree)
-    mode: Literal["worktree-mount", "clone", "clone-worktree"]
-    branch: str  # branch to create or checkout
+    The ``ci-ratchet`` mode implements the "Brownian ratchet" philosophy from
+    multiclaude (https://github.com/dlorenc/multiclaude) by Dan Lorenc et al.:
+    workers clone a remote repo, complete a task, and open a PR; CI is the
+    ratchet that only lets passing work merge — forward progress is permanent.
+    """
+
+    url: str  # local path (worktree-mount) or git remote URL (clone/clone-worktree/ci-ratchet)
+    mode: Literal["worktree-mount", "clone", "clone-worktree", "ci-ratchet"]
+    branch: str = ""  # branch to create or checkout; defaults to work/<session-name> for ci-ratchet
     container_path: str = "/home/developer/workspace/repo"  # where to mount/clone inside container
+    task: str | None = None  # worker task description (required for ci-ratchet)
+    start_merge_queue: bool = True  # auto-start merge-queue container for this repo
+
+    @model_validator(mode="after")
+    def validate_ci_ratchet(self) -> "RepoConfig":
+        if self.mode == "ci-ratchet" and not self.task:
+            raise ValueError("task is required for ci-ratchet mode")
+        if self.mode != "ci-ratchet" and not self.branch:
+            raise ValueError("branch is required for non-ci-ratchet modes")
+        return self
 
 
 class CreateSessionRequest(BaseModel):

@@ -40,6 +40,18 @@ curl -X POST "$BRAINBOX_HUB_URL/api/hub/messages" \
 Your branch: `work/<your-name>`
 Push to it, create PR from it.
 
+## PR Creation
+
+Always label PRs with `brainbox` so the merge-queue agent can discover them:
+
+```bash
+gh pr create \
+  --title "..." \
+  --body "..." \
+  --label brainbox \
+  --head work/<your-name>
+```
+
 ## Environment Hygiene
 
 Keep your environment clean:

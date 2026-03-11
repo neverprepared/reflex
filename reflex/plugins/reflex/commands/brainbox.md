@@ -125,12 +125,15 @@ Parse the `$ARG` from the user's argument:
 - First non-flag argument is the container name (defaults to profile name if not provided)
 - `--mount /host/path:/container/path[:mode]` — Additional volume mounts (can be specified multiple times)
 - `--repo <path-or-url>` — Local path or git remote URL to make available inside the container
-- `--repo-mode worktree-mount|clone|clone-worktree` — How the repo is delivered:
+- `--repo-mode worktree-mount|clone|clone-worktree|ci-ratchet` — How the repo is delivered:
   - `worktree-mount` — Create a git worktree on the host and mount it in (isolated branch, edits visible on host)
   - `clone` — Clone fresh inside the container, no host mount (fully isolated)
   - `clone-worktree` — Clone fresh then create an inner worktree for the branch (fully isolated, extra worktree isolation)
-- `--branch <name>` — Branch to create/checkout (defaults to `brainbox/<session-name>`)
+  - `ci-ratchet` — Autonomous worker: clones repo, completes task, opens PR; CI merges it. Repo does NOT need to exist on this machine. (Brownian ratchet concept from [multiclaude](https://github.com/dlorenc/multiclaude) by Dan Lorenc et al.)
+- `--branch <name>` — Branch to create/checkout (defaults to `brainbox/<session-name>` for non-ci-ratchet; `work/<session-name>` for ci-ratchet)
 - `--container-path <path>` — Where to mount/clone inside the container (default: `/home/developer/workspace/repo`)
+- `--task <description>` — Task for the worker agent (required for `ci-ratchet` mode)
+- `--no-merge-queue` — Skip auto-starting the merge-queue agent (ci-ratchet only; default: start it)
 
 **If `--repo` is provided but `--repo-mode` is not specified**, ask the user before proceeding:
 
@@ -143,13 +146,25 @@ Repo access mode for <repo-name>?
                         Agent opens a PR when done.
   3) clone-worktree   — Clone fresh, then create an inner worktree for the target branch.
                         Fully isolated; useful for multi-workspace repos.
+  4) ci-ratchet       — Autonomous worker: clones, does task, opens PR. CI merges it.
+                        The repo does NOT need to exist on this machine.
+                        (Brownian ratchet concept from multiclaude by Dan Lorenc et al.
+                         https://github.com/dlorenc/multiclaude)
 
-Enter choice (1/2/3):
+Enter choice (1/2/3/4):
 ```
 
-Then ask for a branch name if not provided:
+For modes 1–3, ask for a branch name if not provided:
 ```
 Branch name [brainbox/<session-name>]:
+```
+
+For mode 4 (`ci-ratchet`), ask for the task and merge-queue preference if not provided via flags:
+```
+Task for this worker (what should the agent accomplish?):
+>
+
+Start a merge-queue agent to auto-merge passing PRs? [Y/n]:
 ```
 
 After gathering all inputs, build and send the payload:
@@ -178,6 +193,8 @@ REPO_URL=$(echo "$ARG" | grep -oE -- '--repo [^ ]+' | sed 's/--repo //' | head -
 REPO_MODE=$(echo "$ARG" | grep -oE -- '--repo-mode [^ ]+' | sed 's/--repo-mode //' | head -1)
 BRANCH=$(echo "$ARG" | grep -oE -- '--branch [^ ]+' | sed 's/--branch //' | head -1)
 CONTAINER_PATH=$(echo "$ARG" | grep -oE -- '--container-path [^ ]+' | sed 's/--container-path //' | head -1)
+TASK=$(echo "$ARG" | grep -oE -- '--task [^ ]+.*' | sed 's/--task //' | head -1)
+NO_MERGE_QUEUE=$(echo "$ARG" | grep -c -- '--no-merge-queue' || true)
 
 VOLUMES=$(echo "$ARG" | grep -oE -- '--mount [^ ]+' | sed 's/--mount //' | jq -R . | jq -s -c . || echo "[]")
 if [ "$VOLUMES" = "[]" ] || [ -z "$VOLUMES" ]; then
@@ -198,14 +215,29 @@ if [ -n "$VOLUMES" ] && [ "$VOLUMES" != "[]" ]; then
 fi
 
 if [ -n "$REPO_URL" ]; then
-  BRANCH="${BRANCH:-brainbox/${NAME}}"
   CONTAINER_PATH="${CONTAINER_PATH:-/home/developer/workspace/repo}"
-  REPO_OBJ=$(jq -n \
-    --arg url "$REPO_URL" \
-    --arg mode "$REPO_MODE" \
-    --arg branch "$BRANCH" \
-    --arg cpath "$CONTAINER_PATH" \
-    '{url: $url, mode: $mode, branch: $branch, container_path: $cpath}')
+  if [ "$REPO_MODE" = "ci-ratchet" ]; then
+    # ci-ratchet: branch defaults server-side to work/<name>; task and start_merge_queue included
+    START_MQ="true"
+    [ "$NO_MERGE_QUEUE" -gt 0 ] && START_MQ="false"
+    REPO_OBJ=$(jq -n \
+      --arg url "$REPO_URL" \
+      --arg mode "$REPO_MODE" \
+      --arg branch "$BRANCH" \
+      --arg cpath "$CONTAINER_PATH" \
+      --arg task "$TASK" \
+      --argjson smq "$START_MQ" \
+      '{url: $url, mode: $mode, container_path: $cpath, task: $task, start_merge_queue: $smq} +
+       (if $branch != "" then {branch: $branch} else {} end)')
+  else
+    BRANCH="${BRANCH:-brainbox/${NAME}}"
+    REPO_OBJ=$(jq -n \
+      --arg url "$REPO_URL" \
+      --arg mode "$REPO_MODE" \
+      --arg branch "$BRANCH" \
+      --arg cpath "$CONTAINER_PATH" \
+      '{url: $url, mode: $mode, branch: $branch, container_path: $cpath}')
+  fi
   PAYLOAD=$(echo "$PAYLOAD" | jq --argjson repo "$REPO_OBJ" '. + {repo: $repo}')
 fi
 
@@ -219,7 +251,13 @@ RESULT=$(curl -sf -X POST "${URL}/api/create" \
 echo "$RESULT"
 ```
 
-Show the result: on success report the container URL, detected profile, and (if a repo was configured) the mode and branch used. For `worktree-mount`, note where the worktree was created on the host. On failure show the error.
+Show the result: on success report the container URL, detected profile, and (if a repo was configured) the mode and branch used. For `worktree-mount`, note where the worktree was created on the host. For `ci-ratchet`, report:
+- Container URL (for observation via ttyd)
+- Branch: `work/<name>`
+- Merge-queue started: yes/no
+- "Watch CI at: https://github.com/<owner>/<repo>/actions"
+
+On failure show the error.
 
 **Examples:**
 ```bash
@@ -243,6 +281,19 @@ Show the result: on success report the container URL, detected profile, and (if 
 
 # Create with clone + inner worktree
 /reflex:brainbox create myproject --repo git@github.com:neverprepared/ink-bunny --repo-mode clone-worktree --branch feature/new-thing
+
+# Create ci-ratchet worker (autonomous: clones, completes task, opens PR; CI merges it)
+/reflex:brainbox create fix-highs \
+  --repo git@github.com:neverprepared/ink-bunny \
+  --repo-mode ci-ratchet \
+  --task "Fix BB-H4, BB-H7, BB-H9 from tasks/code-review.md"
+
+# ci-ratchet without auto-starting merge-queue
+/reflex:brainbox create fix-highs \
+  --repo git@github.com:neverprepared/ink-bunny \
+  --repo-mode ci-ratchet \
+  --task "Fix the HIGH-priority items from tasks/code-review.md" \
+  --no-merge-queue
 ```
 
 ### `/reflex:brainbox query`
@@ -396,7 +447,7 @@ Commands:
   stop       Stop a locally auto-started API
   status     Show connection info and running containers
   create     Create a container (auto-detects profile from env)
-             Syntax: create [name] [--mount /host:/container[:mode]] ...
+             Syntax: create [name] [--mount /host:/container[:mode]] [--repo <url>] [--repo-mode <mode>] [--task <desc>] ...
   query      Send a query to a running container via tmux
              Syntax: query <session-name> <query-text>
   dashboard  Open the dashboard in browser

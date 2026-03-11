@@ -866,7 +866,29 @@ async def _inject_repo_clone(container: Any, repo: Any) -> None:
     """Clone the repo inside the container, then optionally create an inner worktree."""
     clone_dest = repo.container_path
 
-    # Clone into the container
+    if repo.mode == "ci-ratchet":
+        # Clone default branch (work branch doesn't exist remotely yet)
+        result = await _run(
+            container.exec_run,
+            ["git", "clone", repo.url, clone_dest],
+            user="developer",
+        )
+        if result.exit_code and result.exit_code != 0:
+            output = result.output.decode() if result.output else ""
+            raise RuntimeError(f"git clone failed (exit {result.exit_code}): {output}")
+
+        # Create the work branch locally
+        result = await _run(
+            container.exec_run,
+            ["git", "-C", clone_dest, "checkout", "-b", repo.branch],
+            user="developer",
+        )
+        if result.exit_code and result.exit_code != 0:
+            output = result.output.decode() if result.output else ""
+            raise RuntimeError(f"git checkout -b failed (exit {result.exit_code}): {output}")
+        return
+
+    # Clone into the container (clone / clone-worktree)
     result = await _run(
         container.exec_run,
         ["git", "clone", "--branch", repo.branch, "--single-branch", repo.url, clone_dest],
@@ -915,6 +937,17 @@ async def run_pipeline(
     docker_host: str | None = None,
     repo: Any = None,  # RepoConfig | None — avoid circular import
 ) -> SessionContext:
+    # Pre-provision: ci-ratchet sets defaults (branch, role, task_description).
+    # "Brownian ratchet" concept from multiclaude by Dan Lorenc et al.:
+    # https://github.com/dlorenc/multiclaude
+    if repo is not None and repo.mode == "ci-ratchet":
+        if not repo.branch:
+            repo = repo.model_copy(update={"branch": f"work/{session_name}"})
+        if role is None or role == "developer":
+            role = "worker"
+        if task_description is None:
+            task_description = repo.task
+
     # Pre-provision: worktree-mount creates a host worktree and mounts it
     worktree_path: str | None = None
     if repo is not None and repo.mode == "worktree-mount":
@@ -966,8 +999,12 @@ async def run_pipeline(
     await configure(ctx)
     await start(ctx)
 
-    # Post-start: inject repo clone for clone / clone-worktree modes
-    if repo is not None and repo.mode in ("clone", "clone-worktree") and backend == "docker":
+    # Post-start: inject repo clone for clone / clone-worktree / ci-ratchet modes
+    if (
+        repo is not None
+        and repo.mode in ("clone", "clone-worktree", "ci-ratchet")
+        and backend == "docker"
+    ):
         from .backends.docker import _docker
 
         try:
@@ -977,6 +1014,25 @@ async def run_pipeline(
             log.info("repo.cloned", metadata={"mode": repo.mode, "branch": repo.branch})
         except Exception as exc:
             log.warning("repo.clone_failed", metadata={"error": str(exc)})
+
+    # Post-start: auto-start merge-queue container for ci-ratchet mode
+    if (
+        repo is not None
+        and repo.mode == "ci-ratchet"
+        and repo.start_merge_queue
+        and backend == "docker"
+    ):
+        try:
+            from .router import submit_task
+
+            await submit_task(
+                f"Merge queue for {repo.url}",
+                "merge-queue",
+                repo_url=repo.url,
+            )
+            log.info("ci_ratchet.merge_queue_started", metadata={"repo": repo.url})
+        except Exception as exc:
+            log.warning("ci_ratchet.merge_queue_failed", metadata={"error": str(exc)})
 
     await monitor(ctx)
     return ctx
