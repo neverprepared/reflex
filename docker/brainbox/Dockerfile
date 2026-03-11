@@ -117,9 +117,8 @@ USER developer
 RUN mkdir -p /home/developer/.azure
 
 # Kubernetes + Terraform (previously performer-only — now in unified image)
-USER root
-RUN brew install hashicorp/tap/terraform kubectl
 USER developer
+RUN brew install hashicorp/tap/terraform kubectl
 
 # =============================================================================
 # Shell configuration — ensure version managers work in interactive sessions
