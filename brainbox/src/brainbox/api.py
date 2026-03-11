@@ -683,6 +683,17 @@ async def api_create_session(
     request: Request, body: CreateSessionRequest, _key=Depends(require_api_key)
 ):
     try:
+        # ci-ratchet: register as a hub task so complete.sh → recycle() works
+        hub_token = None
+        if body.repo and body.repo.mode == "ci-ratchet":
+            from .router import register_ci_ratchet_task
+
+            _, hub_token = register_ci_ratchet_task(
+                description=body.repo.task,
+                repo_url=body.repo.url,
+                session_name=body.name,
+            )
+
         ctx = await run_pipeline(
             session_name=body.name,
             role=body.role,
@@ -697,6 +708,7 @@ async def api_create_session(
             vm_template=body.vm_template,
             ports=body.ports,
             docker_host=body.docker_host,
+            token=hub_token,
             repo=body.repo,
         )
         _audit_log(request, "session.create", session_name=body.name, success=True)

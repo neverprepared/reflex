@@ -725,9 +725,9 @@ async def configure(ctx_or_name: SessionContext | str) -> SessionContext:
     if not ctx.hardened:
         ctx.env_content = "\n".join(f"export {k}={v}" for k, v in resolved.items())
 
-    # Agent token
+    # Agent token — store only the UUID so `Authorization: Bearer <content>` works
     if ctx.token:
-        ctx.secrets["agent-token"] = ctx.token.model_dump_json()
+        ctx.secrets["agent-token"] = ctx.token.token_id
     else:
         ctx.secrets["agent-token"] = json.dumps(
             {
