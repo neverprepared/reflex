@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import re
 import shlex
+import tarfile
 import textwrap
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -22,6 +24,17 @@ _client: docker.DockerClient | None = None
 _executor = ThreadPoolExecutor(max_workers=4)
 
 log = get_logger()
+
+
+def _extract_from_bundle(bundle_bytes: bytes, arcname: str) -> str | None:
+    """Extract a single text file from a tar.gz bundle by archive name."""
+    try:
+        with tarfile.open(fileobj=io.BytesIO(bundle_bytes), mode="r:gz") as tf:
+            member = tf.getmember(arcname)
+            f = tf.extractfile(member)
+            return f.read().decode("utf-8") if f else None
+    except (KeyError, tarfile.TarError, OSError):
+        return None
 
 
 def _docker(docker_host: str | None = None) -> docker.DockerClient:
@@ -546,7 +559,12 @@ class DockerBackend:
             return (exit_code, output)
 
     async def inject_config_bundle(self, ctx: SessionContext, bundle_bytes: bytes) -> None:
-        """Inject translated ~/.claude config bundle into the container via put_archive."""
+        """Inject translated ~/.claude config bundle into the container via put_archive.
+
+        put_archive may silently fail to write files inside ~/.claude/ when
+        ~/.claude/projects is a bind mount (overlayfs + bind mount conflict).
+        settings.json is therefore also written explicitly via exec_run.
+        """
         slog = get_logger(session_name=ctx.session_name, container_name=ctx.container_name)
         client = _docker(ctx.docker_host)
         try:
@@ -564,14 +582,25 @@ class DockerBackend:
                 [
                     "sh",
                     "-c",
-                    "chown -R developer:developer"
-                    " /home/developer/.claude"
-                    " /home/developer/.gitconfig"
-                    " /home/developer/.mcp.json"
-                    " 2>/dev/null || true",
+                    "chown -R developer:developer /home/developer/.claude 2>/dev/null || true",
                 ],
                 user="root",
             )
+
+            # Explicitly write settings.json via exec_run — put_archive may fail to
+            # write inside ~/.claude/ when ~/.claude/projects is a bind mount.
+            settings_json = _extract_from_bundle(bundle_bytes, ".claude/settings.json")
+            if settings_json:
+                await _run(
+                    container.exec_run,
+                    [
+                        "sh",
+                        "-c",
+                        f"echo {shlex.quote(settings_json)}"
+                        " > /home/developer/.claude/settings.json",
+                    ],
+                )
+
             slog.info("container.config_bundle_injected")
         except Exception as exc:
             slog.warning("container.config_bundle_inject_failed", metadata={"reason": str(exc)})
