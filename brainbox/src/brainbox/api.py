@@ -271,6 +271,7 @@ _cors_origins = (
     else [
         "http://localhost:9999",
         "http://127.0.0.1:9999",
+        "http://localhost:9998",  # brainbox-ui nginx container
         "http://localhost:5173",  # Vite dev server
     ]
 )
@@ -293,20 +294,22 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 @app.get("/api/auth/key")
 async def api_get_key(request: Request):
-    """Return the API key — only accessible from loopback addresses.
+    """Return the API key — only accessible from loopback or private Docker networks.
 
-    Note: ``request.client`` may be ``None`` when the ASGI server cannot
-    determine the peer address (e.g. some UNIX-socket transports).  In that
-    case we fail closed (403) rather than granting access.
-
-    If brainbox is deployed behind a reverse proxy on the same host the proxy
-    IP will typically be 127.0.0.1 or ::1 and the check passes as expected.
-    If the proxy lives on a different host you will need to add trusted-proxy
-    header support (e.g. ``X-Real-IP``) guarded by an explicit opt-in config
-    flag — do not blindly trust forwarding headers without that guard.
+    The API binds to 127.0.0.1 on the host, so only localhost processes and
+    containers on the same Docker network (172.x / 10.x / 192.168.x) can reach
+    this endpoint. Private-network requests come from trusted internal containers
+    (e.g. the brainbox-ui nginx proxy) and are treated as equivalent to localhost.
     """
+    import ipaddress
+
     client_ip = request.client.host if request.client else ""
-    if client_ip not in ("127.0.0.1", "::1"):
+    try:
+        addr = ipaddress.ip_address(client_ip)
+        trusted = addr.is_loopback or addr.is_private
+    except ValueError:
+        trusted = False
+    if not trusted:
         raise HTTPException(status_code=403, detail="Only accessible from localhost")
     return {"key": get_api_key()}
 
