@@ -26,11 +26,10 @@ else
         sleep 2
         if [ -f "/home/developer/.brainbox/task.txt" ] && \
            tmux capture-pane -t main -p 2>/dev/null | grep -qE "❯|bypass permissions|Try "; then
-            # Send task content — Claude shows multi-line pastes as "[Pasted text]"
-            # and waits for Enter; we send Enter after a short pause to confirm.
-            tmux send-keys -t main "$(cat /home/developer/.brainbox/task.txt)"
-            sleep 1
-            tmux send-keys -t main "" Enter
+            # Collapse newlines to spaces — tmux send-keys fires Enter on every
+            # newline character, which breaks multi-line task content.
+            TASK_ONELINER=$(tr '\n' ' ' < /home/developer/.brainbox/task.txt | sed 's/  */ /g; s/^ //; s/ $//')
+            tmux send-keys -t main "$TASK_ONELINER" Enter
             break
         fi
     done

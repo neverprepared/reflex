@@ -1,5 +1,11 @@
 # Developer Container
 
+## Auto-Task
+
+If `~/.brainbox/task.txt` exists, read it immediately at startup and begin
+executing the task — do not wait for further prompts. When the task is fully
+complete, run `~/.brainbox/complete.sh "<brief summary>"` to signal the hub.
+
 This is a containerized development environment with Claude Code.
 You have access to the GitHub CLI (`gh`) for GitHub operations.
 The environment includes Python, Node.js, Go, and Rust toolchains.
