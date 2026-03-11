@@ -875,10 +875,26 @@ async def _inject_repo_clone(container: Any, repo: Any) -> None:
     )
 
     if repo.mode == "ci-ratchet":
-        # Clone default branch (work branch doesn't exist remotely yet)
+        # ci-ratchet uses HTTPS + GH_TOKEN (no SSH agent inside the container).
+        # Normalise SSH remote URLs to HTTPS so GH_TOKEN auth works.
+        clone_url = repo.url
+        if clone_url.startswith("git@github.com:"):
+            clone_url = "https://github.com/" + clone_url[len("git@github.com:") :]
+        elif clone_url.startswith("git@gitlab.com:"):
+            clone_url = "https://gitlab.com/" + clone_url[len("git@gitlab.com:") :]
+
+        if clone_url.startswith("https://"):
+            host_path = clone_url[len("https://") :]
+            clone_cmd = (
+                ". /home/developer/.env 2>/dev/null || true"
+                f" && git clone https://x-access-token:${{GH_TOKEN}}@{host_path} {clone_dest}"
+            )
+        else:
+            clone_cmd = f"git clone {clone_url} {clone_dest}"
+
         result = await _run(
             container.exec_run,
-            ["git", "clone", repo.url, clone_dest],
+            ["sh", "-c", clone_cmd],
             user="developer",
         )
         if result.exit_code and result.exit_code != 0:
