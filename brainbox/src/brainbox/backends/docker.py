@@ -551,9 +551,14 @@ class DockerBackend:
         client = _docker(ctx.docker_host)
         try:
             container = await _run(client.containers.get, ctx.container_name)
-            # put_archive on stopped container is fine — no exec needed
+            # put_archive works on stopped containers.
             await _run(container.put_archive, "/home/developer", bundle_bytes)
-            # Fix ownership — tar is assembled with host uid, container user = developer
+            # Fix ownership — tar is assembled with host uid, container user = developer.
+            # exec_run requires a running container; start it now if it hasn't been started
+            # yet (inject_config_bundle runs before configure() in the provision pipeline).
+            await _run(container.reload)
+            if container.status != "running":
+                await _run(container.start)
             await _run(
                 container.exec_run,
                 [
