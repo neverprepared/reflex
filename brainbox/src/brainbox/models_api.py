@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .validation import (
@@ -10,6 +12,15 @@ from .validation import (
     validate_role,
     validate_volume_mount,
 )
+
+
+class RepoConfig(BaseModel):
+    """Repo access configuration for container sessions."""
+
+    url: str  # local path (worktree-mount) or git remote URL (clone/clone-worktree)
+    mode: Literal["worktree-mount", "clone", "clone-worktree"]
+    branch: str  # branch to create or checkout
+    container_path: str = "/home/developer/workspace/repo"  # where to mount/clone inside container
 
 
 class CreateSessionRequest(BaseModel):
@@ -28,6 +39,7 @@ class CreateSessionRequest(BaseModel):
     vm_template: str | None = None  # UTM only: template VM name
     ports: dict[str, int] | None = None  # Additional port mappings (container_port: host_port)
     docker_host: str | None = None  # Docker daemon host (None = local socket)
+    repo: RepoConfig | None = None  # Repo access mode (worktree-mount, clone, clone-worktree)
 
     @field_validator("name")
     @classmethod

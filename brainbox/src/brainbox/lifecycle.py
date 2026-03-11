@@ -10,6 +10,8 @@ import asyncio
 import json
 import os
 import stat
+import subprocess
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -819,7 +821,71 @@ async def recycle(ctx_or_name: SessionContext | str, reason: str = "manual") -> 
     ctx.state = SessionState.RECYCLED
     _sessions.pop(ctx.session_name, None)
     slog.info("container.recycled", metadata={"reason": reason, "backend": ctx.backend})
+
+    # Clean up host worktree if one was created for this session
+    if ctx.worktree_path:
+        _remove_host_worktree(ctx.worktree_path)
+
     return ctx
+
+
+# ---------------------------------------------------------------------------
+# Repo helpers
+# ---------------------------------------------------------------------------
+
+
+def _create_host_worktree(repo_path: str, branch: str) -> str:
+    """Create a git worktree on the host and return its path."""
+    wt_id = uuid.uuid4().hex[:8]
+    wt_path = f"/tmp/brainbox-wt-{wt_id}"
+    subprocess.run(
+        ["git", "-C", repo_path, "worktree", "add", "-B", branch, wt_path],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    log.info("worktree.created", metadata={"path": wt_path, "branch": branch})
+    return wt_path
+
+
+def _remove_host_worktree(wt_path: str) -> None:
+    """Remove a host git worktree, ignoring errors."""
+    try:
+        subprocess.run(
+            ["git", "worktree", "remove", "--force", wt_path],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        log.info("worktree.removed", metadata={"path": wt_path})
+    except Exception as exc:
+        log.warning("worktree.remove_failed", metadata={"path": wt_path, "error": str(exc)})
+
+
+async def _inject_repo_clone(container: Any, repo: Any) -> None:
+    """Clone the repo inside the container, then optionally create an inner worktree."""
+    clone_dest = repo.container_path
+
+    # Clone into the container
+    result = await _run(
+        container.exec_run,
+        ["git", "clone", "--branch", repo.branch, "--single-branch", repo.url, clone_dest],
+        user="developer",
+    )
+    if result.exit_code and result.exit_code != 0:
+        output = result.output.decode() if result.output else ""
+        raise RuntimeError(f"git clone failed (exit {result.exit_code}): {output}")
+
+    if repo.mode == "clone-worktree":
+        wt_path = clone_dest + "-wt"
+        result = await _run(
+            container.exec_run,
+            ["git", "-C", clone_dest, "worktree", "add", "-B", repo.branch, wt_path],
+            user="developer",
+        )
+        if result.exit_code and result.exit_code != 0:
+            output = result.output.decode() if result.output else ""
+            raise RuntimeError(f"git worktree add failed (exit {result.exit_code}): {output}")
 
 
 # ---------------------------------------------------------------------------
@@ -847,7 +913,15 @@ async def run_pipeline(
     repo_url: str | None = None,
     task_description: str | None = None,
     docker_host: str | None = None,
+    repo: Any = None,  # RepoConfig | None — avoid circular import
 ) -> SessionContext:
+    # Pre-provision: worktree-mount creates a host worktree and mounts it
+    worktree_path: str | None = None
+    if repo is not None and repo.mode == "worktree-mount":
+        worktree_path = _create_host_worktree(repo.url, repo.branch)
+        volume_mounts = list(volume_mounts or [])
+        volume_mounts.append(f"{worktree_path}:{repo.container_path}:rw")
+
     ctx = await provision(
         session_name=session_name,
         role=role,
@@ -885,8 +959,25 @@ async def run_pipeline(
         if not _docker_is_local(docker_host):
             await docker_backend.inject_remote_credentials(ctx)
 
+    # Store worktree path in context so delete can clean it up
+    if worktree_path:
+        ctx.worktree_path = worktree_path
+
     await configure(ctx)
     await start(ctx)
+
+    # Post-start: inject repo clone for clone / clone-worktree modes
+    if repo is not None and repo.mode in ("clone", "clone-worktree") and backend == "docker":
+        from .backends.docker import _docker
+
+        try:
+            client = _docker(docker_host)
+            container = await _run(client.containers.get, ctx.container_name)
+            await _inject_repo_clone(container, repo)
+            log.info("repo.cloned", metadata={"mode": repo.mode, "branch": repo.branch})
+        except Exception as exc:
+            log.warning("repo.clone_failed", metadata={"error": str(exc)})
+
     await monitor(ctx)
     return ctx
 

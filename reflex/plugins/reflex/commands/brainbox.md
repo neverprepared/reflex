@@ -119,7 +119,40 @@ fi
 
 Create a new sandboxed container. Auto-detects the caller's workspace profile and home from environment variables (`WORKSPACE_PROFILE`, `WORKSPACE_HOME`). An optional name can be provided as an argument; defaults to the profile name.
 
-Supports additional volume mounts via `--mount` flags.
+Supports additional volume mounts via `--mount` flags and repo access configuration via `--repo`, `--repo-mode`, and `--branch` flags.
+
+Parse the `$ARG` from the user's argument:
+- First non-flag argument is the container name (defaults to profile name if not provided)
+- `--mount /host/path:/container/path[:mode]` — Additional volume mounts (can be specified multiple times)
+- `--repo <path-or-url>` — Local path or git remote URL to make available inside the container
+- `--repo-mode worktree-mount|clone|clone-worktree` — How the repo is delivered:
+  - `worktree-mount` — Create a git worktree on the host and mount it in (isolated branch, edits visible on host)
+  - `clone` — Clone fresh inside the container, no host mount (fully isolated)
+  - `clone-worktree` — Clone fresh then create an inner worktree for the branch (fully isolated, extra worktree isolation)
+- `--branch <name>` — Branch to create/checkout (defaults to `brainbox/<session-name>`)
+- `--container-path <path>` — Where to mount/clone inside the container (default: `/home/developer/workspace/repo`)
+
+**If `--repo` is provided but `--repo-mode` is not specified**, ask the user before proceeding:
+
+```
+Repo access mode for <repo-name>?
+
+  1) worktree-mount   — Create a git worktree on your machine and mount it into the container.
+                        Edits are immediately visible on the host branch; main is untouched.
+  2) clone            — Clone the repo fresh inside the container. No host paths modified.
+                        Agent opens a PR when done.
+  3) clone-worktree   — Clone fresh, then create an inner worktree for the target branch.
+                        Fully isolated; useful for multi-workspace repos.
+
+Enter choice (1/2/3):
+```
+
+Then ask for a branch name if not provided:
+```
+Branch name [brainbox/<session-name>]:
+```
+
+After gathering all inputs, build and send the payload:
 
 ```bash
 CLAUDE_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -135,31 +168,46 @@ URL=$(cat "$URL_FILE")
 PROFILE="${WORKSPACE_PROFILE:-}"
 WS_HOME="${WORKSPACE_HOME:-}"
 
-# Parse arguments: name (first non-flag) and --mount flags
-# Extract name (first non-flag argument)
+# Parse arguments
 NAME=$(echo "$ARG" | sed -E 's/^([^ ]*).*/\1/' | grep -v '^--' || echo "")
 if [ -z "$NAME" ] || echo "$NAME" | grep -q '^--'; then
   NAME="${PROFILE:-default}"
 fi
 
-# Extract all --mount arguments and build JSON array
+REPO_URL=$(echo "$ARG" | grep -oE -- '--repo [^ ]+' | sed 's/--repo //' | head -1)
+REPO_MODE=$(echo "$ARG" | grep -oE -- '--repo-mode [^ ]+' | sed 's/--repo-mode //' | head -1)
+BRANCH=$(echo "$ARG" | grep -oE -- '--branch [^ ]+' | sed 's/--branch //' | head -1)
+CONTAINER_PATH=$(echo "$ARG" | grep -oE -- '--container-path [^ ]+' | sed 's/--container-path //' | head -1)
+
 VOLUMES=$(echo "$ARG" | grep -oE -- '--mount [^ ]+' | sed 's/--mount //' | jq -R . | jq -s -c . || echo "[]")
 if [ "$VOLUMES" = "[]" ] || [ -z "$VOLUMES" ]; then
   VOLUMES=""
 fi
 
 # Build JSON payload
-PAYLOAD="{\"name\":\"${NAME}\",\"role\":\"developer\""
-if [ -n "$PROFILE" ]; then
-  PAYLOAD="${PAYLOAD},\"workspace_profile\":\"${PROFILE}\""
-fi
-if [ -n "$WS_HOME" ]; then
-  PAYLOAD="${PAYLOAD},\"workspace_home\":\"${WS_HOME}\""
-fi
+PAYLOAD=$(jq -n \
+  --arg name "$NAME" \
+  --arg profile "$PROFILE" \
+  --arg ws_home "$WS_HOME" \
+  '{name: $name, role: "developer"} +
+   (if $profile != "" then {workspace_profile: $profile} else {} end) +
+   (if $ws_home != "" then {workspace_home: $ws_home} else {} end)')
+
 if [ -n "$VOLUMES" ] && [ "$VOLUMES" != "[]" ]; then
-  PAYLOAD="${PAYLOAD},\"volumes\":${VOLUMES}"
+  PAYLOAD=$(echo "$PAYLOAD" | jq --argjson vols "$VOLUMES" '. + {volumes: $vols}')
 fi
-PAYLOAD="${PAYLOAD}}"
+
+if [ -n "$REPO_URL" ]; then
+  BRANCH="${BRANCH:-brainbox/${NAME}}"
+  CONTAINER_PATH="${CONTAINER_PATH:-/home/developer/workspace/repo}"
+  REPO_OBJ=$(jq -n \
+    --arg url "$REPO_URL" \
+    --arg mode "$REPO_MODE" \
+    --arg branch "$BRANCH" \
+    --arg cpath "$CONTAINER_PATH" \
+    '{url: $url, mode: $mode, branch: $branch, container_path: $cpath}')
+  PAYLOAD=$(echo "$PAYLOAD" | jq --argjson repo "$REPO_OBJ" '. + {repo: $repo}')
+fi
 
 API_KEY=$(curl -sf "${URL}/api/auth/key" --max-time 3 2>/dev/null | jq -r '.key // empty' 2>/dev/null || true)
 
@@ -171,11 +219,7 @@ RESULT=$(curl -sf -X POST "${URL}/api/create" \
 echo "$RESULT"
 ```
 
-Parse the `$ARG` from the user's argument:
-- First non-flag argument is the container name (defaults to profile name if not provided)
-- `--mount /host/path:/container/path[:mode]` — Additional volume mounts (can be specified multiple times)
-
-Show the result: on success report the container URL and detected profile. On failure show the error.
+Show the result: on success report the container URL, detected profile, and (if a repo was configured) the mode and branch used. For `worktree-mount`, note where the worktree was created on the host. On failure show the error.
 
 **Examples:**
 ```bash
@@ -186,7 +230,19 @@ Show the result: on success report the container URL and detected profile. On fa
 /reflex:brainbox create myproject
 
 # Create with additional volume mounts
-/reflex:brainbox create myproject --mount /data:/workspace/data:ro --mount /configs:/workspace/.config:rw
+/reflex:brainbox create myproject --mount /data:/workspace/data:ro
+
+# Create with repo (prompts for mode if not specified)
+/reflex:brainbox create myproject --repo /path/to/ink-bunny
+
+# Create with explicit worktree-mount mode
+/reflex:brainbox create myproject --repo /path/to/ink-bunny --repo-mode worktree-mount --branch fix/my-changes
+
+# Create with fresh clone
+/reflex:brainbox create myproject --repo git@github.com:neverprepared/ink-bunny --repo-mode clone --branch feature/new-thing
+
+# Create with clone + inner worktree
+/reflex:brainbox create myproject --repo git@github.com:neverprepared/ink-bunny --repo-mode clone-worktree --branch feature/new-thing
 ```
 
 ### `/reflex:brainbox query`

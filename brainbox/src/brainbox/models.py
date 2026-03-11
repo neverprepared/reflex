@@ -102,6 +102,9 @@ class SessionContext(BaseModel):
     vm_path: str | None = None  # UTM only: Full path to .utm package
     vm_ip: str | None = None  # UTM only: VM's IP address (bridged networking)
     mac_address: str | None = None  # UTM only: VM's MAC address for IP discovery
+    worktree_path: str | None = (
+        None  # Host worktree path created for this session (worktree-mount mode)
+    )
 
 
 # ---------------------------------------------------------------------------

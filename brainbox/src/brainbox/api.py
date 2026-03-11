@@ -697,6 +697,7 @@ async def api_create_session(
             vm_template=body.vm_template,
             ports=body.ports,
             docker_host=body.docker_host,
+            repo=body.repo,
         )
         _audit_log(request, "session.create", session_name=body.name, success=True)
 
