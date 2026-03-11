@@ -865,6 +865,14 @@ def _remove_host_worktree(wt_path: str) -> None:
 async def _inject_repo_clone(container: Any, repo: Any) -> None:
     """Clone the repo inside the container, then optionally create an inner worktree."""
     clone_dest = repo.container_path
+    parent_dir = clone_dest.rsplit("/", 1)[0] if "/" in clone_dest else "/home/developer"
+
+    # Ensure parent directory exists
+    await _run(
+        container.exec_run,
+        ["sh", "-c", f"mkdir -p {parent_dir}"],
+        user="developer",
+    )
 
     if repo.mode == "ci-ratchet":
         # Clone default branch (work branch doesn't exist remotely yet)
